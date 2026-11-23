@@ -10,15 +10,19 @@ namespace NexoMcp.Server.Tools;
 public sealed class AnalyticsTools(NexoCache cache)
 {
     [McpServerTool(Name = "find_recurring_invoices"), Description(
-        "Finds every client+product pair billed at least minOccurrences times, labeled by how regular " +
-        "the spacing between issue dates actually is: Monthly, Quarterly, Yearly, or Irregular - nothing " +
-        "is hidden just for being imperfectly regular (a client billed monthly but with an occasional " +
-        "skipped/delayed month still shows up as Monthly). For each series, also attempts to read the " +
-        "billing period (e.g. \"za okres od .. do ..\") out of the line description text - nexo has no " +
-        "dedicated period field, so a null period on an occurrence means it could not be parsed, not " +
-        "that there was no period.")]
+        "Znajduje kazda pare klient+produkt rozliczana co najmniej minOccurrences razy, oznaczona " +
+        "wedlug rzeczywistej regularnosci odstepow miedzy datami wystawienia: Monthly, Quarterly, " +
+        "Yearly albo Irregular - nic nie jest ukrywane za niedoskonala regularnosc. Pewna " +
+        "tolerancja na okazjonalnie pominiety/przesuniety miesiac jest wliczona (klient " +
+        "rozliczany miesiecznie z jednym odstajacym odstepem moze nadal wypadac jako Monthly), " +
+        "ale to nie jest gwarancja - kilka pominietych/przesunietych miesiecy, albo jeden bardzo " +
+        "duzy odstep, i para trafi do Irregular mimo ze \"w zyciu\" jest rozliczana cyklicznie; " +
+        "Irregular to uczciwa etykieta w takim przypadku, nie blad. Dla kazdej serii probuje tez " +
+        "odczytac okres rozliczeniowy " +
+        "(np. \"za okres od .. do ..\") z tekstu opisu pozycji - nexo nie ma dedykowanego pola " +
+        "okresu, wiec null jako okres znaczy \"nie udalo sie rozpoznac\", nie \"nie bylo okresu\".")]
     public object FindRecurringInvoices(
-        [Description("Minimum number of occurrences before a client+product pair is reported at all. Default 3.")] int minOccurrences = 3)
+        [Description("Minimalna liczba wystapien, zeby para klient+produkt zostala w ogole zaraportowana. Domyslnie 3.")] int minOccurrences = 3)
     {
         var invoices = cache.GetInvoices(direction: Direction.Sale);
         var series = RecurringInvoiceDetector.Detect(invoices, minOccurrences);
@@ -45,10 +49,10 @@ public sealed class AnalyticsTools(NexoCache cache)
     }
 
     [McpServerTool(Name = "get_monthly_revenue"), Description(
-        "Breaks down cached invoices into calendar-month net/gross revenue, and reports the average " +
-        "monthly net revenue (optionally over just the trailing N months).")]
+        "Rozklada faktury z cache na miesieczny przychod netto/brutto i podaje srednia miesieczna " +
+        "(opcjonalnie tylko z ostatnich N miesiecy).")]
     public object GetMonthlyRevenue(
-        [Description("If set, also compute the average over just the last N months instead of the whole history.")] int? trailingMonths = null)
+        [Description("Jesli podane, liczy srednia tylko z ostatnich N miesiecy zamiast calej historii.")] int? trailingMonths = null)
     {
         var invoices = cache.GetInvoices(direction: Direction.Sale);
         var months = RevenueAnalyzer.MonthlyBreakdown(invoices);
@@ -63,11 +67,11 @@ public sealed class AnalyticsTools(NexoCache cache)
     }
 
     [McpServerTool(Name = "get_monthly_expenses"), Description(
-        "Breaks down cached costs into calendar-month totals: purchase invoices, ZUS transfers, tax " +
-        "office transfers, and other bank/cash outflows (payroll, supplier payments made without an " +
-        "invoice, etc.) - see README \"Known limitations\" for how ZUS/tax are recognized.")]
+        "Rozklada koszty z cache na miesieczne sumy: faktury zakupu, przelewy ZUS, przelewy do " +
+        "urzedu skarbowego i inne operacje bankowo-kasowe (wyplaty, platnosci dostawcom bez " +
+        "faktury itd.) - zobacz README \"Znane ograniczenia\" po szczegoly rozpoznawania ZUS/podatku.")]
     public object GetMonthlyExpenses(
-        [Description("If set, also compute the average over just the last N months instead of the whole history.")] int? trailingMonths = null)
+        [Description("Jesli podane, liczy srednia tylko z ostatnich N miesiecy zamiast calej historii.")] int? trailingMonths = null)
     {
         var purchaseInvoices = cache.GetInvoices(direction: Direction.Purchase);
         var cashOperations = cache.GetCashOperations(moneyIn: false);
@@ -83,23 +87,28 @@ public sealed class AnalyticsTools(NexoCache cache)
     }
 
     [McpServerTool(Name = "project_budget"), Description(
-        "Projects a simple next-year monthly budget from cached invoice and cash-flow history: revenue " +
-        "(from sales invoices), costs (from purchase invoices plus ZUS/tax/other bank-cash outflows - see " +
-        "get_monthly_expenses), and the net of the two. " +
-        "\"flat\" repeats the trailing-12-month average across every month of the target year. " +
-        "\"seasonal\" averages each calendar month's own history separately (so December's budget comes " +
-        "from past Decembers, etc.), falling back to the overall average for a month with no history. " +
-        "An optional growth rate is applied to revenue and costs independently. This is a simple " +
-        "average-based projection, not a forecast model - treat it as a first draft budget.")]
+        "Projektuje prosty budzet na kolejny rok z historii faktur i przeplywow z cache: przychod " +
+        "(z faktur sprzedazy), koszty (z faktur zakupu plus ZUS/podatek/inne odplywy bankowo-" +
+        "kasowe - zobacz get_monthly_expenses) i ich roznice netto. " +
+        "\"flat\" powiela srednia z ostatnich 12 miesiecy na kazdy miesiac docelowego roku. " +
+        "\"seasonal\" liczy srednia osobno dla kazdego miesiaca kalendarzowego (budzet na grudzien " +
+        "pochodzi z historii poprzednich grudniow itd.), z fallbackiem do sredniej ogolnej dla " +
+        "miesiaca bez historii. Opcjonalna stopa wzrostu jest stosowana niezaleznie do przychodow " +
+        "i kosztow. To prosta projekcja na bazie sredniej, nie model prognostyczny - traktuj jako " +
+        "pierwszy szkic budzetu.")]
     public object ProjectBudget(
-        [Description("The year to project a budget for, e.g. 2027.")] int year,
-        [Description("\"flat\" or \"seasonal\". Default \"seasonal\".")] string method = "seasonal",
-        [Description("Percentage growth/decline to apply to revenue, e.g. 5 for +5%. Default 0.")] decimal revenueGrowthRatePercent = 0m,
-        [Description("Percentage growth/decline to apply to costs. Default 0.")] decimal costGrowthRatePercent = 0m)
+        [Description("Rok, dla ktorego projektowac budzet, np. 2027.")] int year,
+        [Description("\"flat\" albo \"seasonal\". Domyslnie \"seasonal\".")] string method = "seasonal",
+        [Description("Procentowy wzrost/spadek do zastosowania do przychodow, np. 5 dla +5%. Domyslnie 0.")] decimal revenueGrowthRatePercent = 0m,
+        [Description("Procentowy wzrost/spadek do zastosowania do kosztow. Domyslnie 0.")] decimal costGrowthRatePercent = 0m)
     {
-        var projectionMethod = method.Equals("flat", StringComparison.OrdinalIgnoreCase)
-            ? ProjectionMethod.FlatTrailingAverage
-            : ProjectionMethod.SeasonalMonthlyAverage;
+        ProjectionMethod projectionMethod;
+        if (method.Equals("flat", StringComparison.OrdinalIgnoreCase))
+            projectionMethod = ProjectionMethod.FlatTrailingAverage;
+        else if (method.Equals("seasonal", StringComparison.OrdinalIgnoreCase))
+            projectionMethod = ProjectionMethod.SeasonalMonthlyAverage;
+        else
+            throw new ArgumentException($"Nieznana wartosc method: \"{method}\". Oczekiwano \"flat\" albo \"seasonal\".");
 
         var revenueMonths = RevenueAnalyzer.MonthlyBreakdown(cache.GetInvoices(direction: Direction.Sale));
         var revenueProjection = BudgetProjector.Project(revenueMonths, year, projectionMethod, revenueGrowthRatePercent);

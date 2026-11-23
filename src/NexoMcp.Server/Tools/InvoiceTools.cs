@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Globalization;
 using ModelContextProtocol.Server;
 using NexoMcp.Core.Cache;
 using NexoMcp.Core.Models;
@@ -9,28 +10,37 @@ namespace NexoMcp.Server.Tools;
 public sealed class InvoiceTools(NexoCache cache)
 {
     [McpServerTool(Name = "list_invoices"), Description(
-        "Lists invoices from the local cache, optionally filtered by issue date range, client/supplier " +
-        "symbol, and direction (\"Sale\" for sales invoices, \"Purchase\" for supplier/cost invoices - " +
-        "omit for both). Returns headers only (no line items) - use get_invoice for the full detail of one invoice.")]
+        "Lista faktur z lokalnego cache, opcjonalnie filtrowana po zakresie dat wystawienia, " +
+        "symbolu klienta/dostawcy i kierunku (\"Sale\" dla faktur sprzedazy, \"Purchase\" dla " +
+        "faktur zakupu/kosztow - pomin, aby pokazac obie). Zwraca tylko naglowki (bez pozycji) " +
+        "- uzyj get_invoice po pelny szczegol jednej faktury.")]
     public object ListInvoices(
-        [Description("ISO date (yyyy-MM-dd), inclusive. Omit for no lower bound.")] string? from = null,
-        [Description("ISO date (yyyy-MM-dd), inclusive. Omit for no upper bound.")] string? to = null,
-        [Description("Client/supplier symbol to filter by. Omit to include all.")] string? clientSymbol = null,
-        [Description("\"Sale\" or \"Purchase\". Omit to include both.")] string? direction = null)
+        [Description("Data ISO (rrrr-MM-dd), wlacznie. Pomin dla braku dolnej granicy.")] string? from = null,
+        [Description("Data ISO (rrrr-MM-dd), wlacznie. Pomin dla braku gornej granicy.")] string? to = null,
+        [Description("Symbol klienta/dostawcy do filtrowania. Pomin, aby uwzglednic wszystkich.")] string? clientSymbol = null,
+        [Description("\"Sale\" albo \"Purchase\". Pomin, aby uwzglednic obie.")] string? direction = null)
     {
+        Direction? parsedDirection = null;
+        if (direction is not null)
+        {
+            if (!Enum.TryParse(direction, ignoreCase: true, out Direction d))
+                throw new ArgumentException($"Nieznana wartosc direction: \"{direction}\". Oczekiwano \"Sale\" albo \"Purchase\".");
+            parsedDirection = d;
+        }
+
         var invoices = cache.GetInvoices(
-            from is null ? null : DateOnly.Parse(from),
-            to is null ? null : DateOnly.Parse(to),
+            ParseIsoDateOrNull(from, nameof(from)),
+            ParseIsoDateOrNull(to, nameof(to)),
             clientSymbol,
-            direction: direction is null ? null : Enum.Parse<Direction>(direction, ignoreCase: true));
+            direction: parsedDirection);
 
         return invoices.Select(i => new
         {
             i.Id,
             i.FullNumber,
             IssueDate = i.IssueDate.ToString("yyyy-MM-dd"),
-            i.Kind,
-            i.Direction,
+            Kind = i.Kind.ToString(),
+            Direction = i.Direction.ToString(),
             i.ClientSymbol,
             i.ClientName,
             i.Currency,
@@ -41,9 +51,9 @@ public sealed class InvoiceTools(NexoCache cache)
     }
 
     [McpServerTool(Name = "get_invoice"), Description(
-        "Gets one invoice from the local cache by its nexo document id, including every line item " +
-        "(product, description, quantity, unit price, net/gross value).")]
-    public object? GetInvoice([Description("The nexo document id, as returned by list_invoices.")] int invoiceId)
+        "Pelny szczegol jednej faktury z lokalnego cache po jej id dokumentu nexo, z kazda pozycja " +
+        "(produkt, opis, ilosc, cena jednostkowa, wartosc netto/brutto).")]
+    public object? GetInvoice([Description("Id dokumentu nexo, zwracane przez list_invoices.")] int invoiceId)
     {
         var invoice = cache.GetInvoices().FirstOrDefault(i => i.Id == invoiceId);
         if (invoice is null)
@@ -55,10 +65,11 @@ public sealed class InvoiceTools(NexoCache cache)
             invoice.FullNumber,
             IssueDate = invoice.IssueDate.ToString("yyyy-MM-dd"),
             DueDate = invoice.DueDate?.ToString("yyyy-MM-dd"),
-            invoice.Kind,
-            invoice.Direction,
+            Kind = invoice.Kind.ToString(),
+            Direction = invoice.Direction.ToString(),
             invoice.ClientSymbol,
             invoice.ClientName,
+            invoice.ClientTaxId,
             invoice.Currency,
             invoice.NetTotal,
             invoice.GrossTotal,
@@ -78,5 +89,14 @@ public sealed class InvoiceTools(NexoCache cache)
                 l.GrossValue,
             }),
         };
+    }
+
+    private static DateOnly? ParseIsoDateOrNull(string? value, string paramName)
+    {
+        if (value is null)
+            return null;
+        if (!DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+            throw new ArgumentException($"{paramName} musi byc data w formacie rrrr-MM-dd, otrzymano: \"{value}\".");
+        return parsed;
     }
 }

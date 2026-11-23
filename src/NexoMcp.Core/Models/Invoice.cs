@@ -9,6 +9,7 @@ public sealed record Invoice(
     Direction Direction,
     string ClientSymbol,
     string ClientName,
+    string? ClientTaxId,
     string Currency,
     decimal NetTotal,
     decimal GrossTotal,

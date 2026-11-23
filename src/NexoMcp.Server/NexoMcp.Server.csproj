@@ -13,12 +13,19 @@
     <!--
       Path to the InsERT nexo SDK's Bin folder, which holds the proprietary Sfera assemblies
       this project references below. Those DLLs come from your own licensed nexo installation
-      and are never part of this repository (see README.md "Konfiguracja" / "Setup") - point
+      and are never part of this repository (see README.md "Konfiguracja") - point
       this at them either by setting the NEXO_SDK_PATH environment variable, or by copying the
       DLLs into a local "sdk/" folder at the repo root (gitignored).
     -->
     <NexoSdkBinPath Condition="'$(NexoSdkBinPath)' == '' and '$(NEXO_SDK_PATH)' != ''">$(NEXO_SDK_PATH)</NexoSdkBinPath>
     <NexoSdkBinPath Condition="'$(NexoSdkBinPath)' == ''">$(MSBuildThisFileDirectory)..\..\sdk\</NexoSdkBinPath>
+    <!--
+      NEXO_SDK_PATH is commonly set to a folder path with no trailing backslash (e.g. the
+      README's own example, "C:\...\Bin"); every use below concatenates a filename directly onto
+      NexoSdkBinPath ("$(NexoSdkBinPath)InsERT.Moria.API.dll"), so a missing trailing slash would
+      silently build "...BinInsERT.Moria.API.dll" and fail to find the file. Normalize once here.
+    -->
+    <NexoSdkBinPath>$([MSBuild]::EnsureTrailingSlash('$(NexoSdkBinPath)'))</NexoSdkBinPath>
   </PropertyGroup>
 
   <ItemGroup>
@@ -67,11 +74,18 @@
     host style - e.g. InsERT.Mox.Launcher.dll is pulled in by DanePolaczenia.Jawne even though no
     code here references it directly), not just the assemblies referenced above. Rather than
     chase each missing dependency one at a time, copy every DLL/.pak file from the SDK's Bin
-    folder next to this project's own build output.
+    folder next to this project's own build output - EXCEPT files NuGet already placed there
+    (@(ReferenceCopyLocalPaths): this project's own packages plus their transitive dependencies).
+    Confirmed by a live run: nexo's own Bin folder ships its own Microsoft.Data.Sqlite.dll and
+    SQLitePCLRaw.* at different versions than the ones NexoMcp.Core's NuGet packages resolve to
+    (and the two are not binary compatible - a major-version jump in SQLitePCLRaw) - copying
+    them unconditionally silently overwrote the versions this project was actually built and
+    tested against, with whatever happened to ship in a given nexo SDK release.
   -->
   <Target Name="CopyNexoSdkRuntimeFiles" AfterTargets="Build">
     <ItemGroup>
-      <NexoSdkRuntimeFile Include="$(NexoSdkBinPath)*.dll" />
+      <_NuGetProvidedFileName Include="@(ReferenceCopyLocalPaths->'$(NexoSdkBinPath)%(Filename)%(Extension)')" />
+      <NexoSdkRuntimeFile Include="$(NexoSdkBinPath)*.dll" Exclude="@(_NuGetProvidedFileName)" />
       <NexoSdkRuntimeFile Include="$(NexoSdkBinPath)*.pak" />
     </ItemGroup>
     <Copy SourceFiles="@(NexoSdkRuntimeFile)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" />

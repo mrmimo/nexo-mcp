@@ -21,6 +21,7 @@ internal static class TestInvoices
             direction,
             clientSymbol,
             $"Klient {clientSymbol}",
+            null,
             "PLN",
             net,
             Math.Round(net * 1.23m, 2),

@@ -24,7 +24,7 @@ public class ExpenseAnalyzerTests
             Cash(3, new DateOnly(2025, 3, 25), 100m, moneyIn: false, category: CashFlowCategory.Other),
         };
 
-        var months = ExpenseAnalyzer.MonthlyBreakdown(purchases, cashOps);
+        var months = ExpenseAnalyzer.MonthlyBreakdown(purchases, cashOps, asOf: new DateOnly(2025, 4, 1));
 
         var month = Assert.Single(months);
         Assert.Equal(1000m, month.Purchases);
@@ -46,9 +46,40 @@ public class ExpenseAnalyzerTests
             Cash(1, new DateOnly(2025, 3, 15), 500m, moneyIn: true, category: CashFlowCategory.Other),
         };
 
-        var months = ExpenseAnalyzer.MonthlyBreakdown(sales, cashOps);
+        var months = ExpenseAnalyzer.MonthlyBreakdown(sales, cashOps, asOf: new DateOnly(2025, 4, 1));
 
         Assert.Empty(months);
+    }
+
+    [Fact]
+    public void Fills_months_with_no_costs_as_zero()
+    {
+        var purchases = new List<Invoice>
+        {
+            Invoice(1, new DateOnly(2025, 1, 10), "SUPPLIER", 1000m, direction: Direction.Purchase),
+            // February: nothing at all.
+            Invoice(2, new DateOnly(2025, 3, 10), "SUPPLIER", 400m, direction: Direction.Purchase),
+        };
+
+        var months = ExpenseAnalyzer.MonthlyBreakdown(purchases, [], asOf: new DateOnly(2025, 4, 1));
+
+        Assert.Equal(3, months.Count);
+        Assert.Equal(0m, months[1].Total);
+    }
+
+    [Fact]
+    public void Excludes_the_current_still_in_progress_month()
+    {
+        var purchases = new List<Invoice>
+        {
+            Invoice(1, new DateOnly(2025, 3, 10), "SUPPLIER", 1000m, direction: Direction.Purchase),
+            Invoice(2, new DateOnly(2025, 4, 1), "SUPPLIER", 999m, direction: Direction.Purchase),
+        };
+
+        var months = ExpenseAnalyzer.MonthlyBreakdown(purchases, [], asOf: new DateOnly(2025, 4, 15));
+
+        var month = Assert.Single(months);
+        Assert.Equal((2025, 3), (month.Year, month.Month));
     }
 
     [Fact]

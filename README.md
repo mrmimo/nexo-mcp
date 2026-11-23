@@ -1,179 +1,277 @@
 # nexo-mcp
 
-An [MCP](https://modelcontextprotocol.io) server that lets an AI assistant query **InsERT
-Subiekt / Gestor nexo**: sales invoices and purchase (cost) invoices with their line items,
-products and clients, plus bank/cash operations (so ZUS and tax-office payments - which never
-have an invoice at all - are visible too) - and run simple analytics on top: finding invoices
-billed on a recurring schedule and the periods they cover, monthly revenue, monthly costs, and a
-next-year budget projection that nets the two.
+Serwer [MCP](https://modelcontextprotocol.io), który pozwala asystentowi AI odpytywać
+**InsERT Subiekt / Gestor nexo**: faktury sprzedaży i zakupu (koszty) wraz z pozycjami,
+produktami i klientami, a także operacje bankowe/kasowe (dzięki czemu widać też płatności ZUS
+i do Urzędu Skarbowego - które nigdy nie mają swojej faktury) - i liczyć na tym proste analizy:
+wykrywanie faktur rozliczanych cyklicznie oraz okresów, które pokrywają, miesięczne przychody,
+miesięczne koszty i projekcję budżetu na kolejny rok, liczoną jako różnica przychodów i kosztów.
 
-Read-only. It never creates, edits, or deletes anything in nexo.
+Tylko odczyt. Nigdy nie tworzy, nie edytuje i nie usuwa niczego w nexo.
 
-## Why this exists
+## Dlaczego to powstało
 
-InsERT nexo doesn't expose its data over a network API by default - the supported way to read
-or write its data from outside the application is **Sfera**, InsERT's own .NET object model
-(shipped with the nexo SDK, requires your own licensed nexo installation). This project wraps
-Sfera in an MCP server so tools like Claude can answer questions such as:
+InsERT nexo domyślnie nie wystawia swoich danych przez sieciowe API - wspierany sposób
+odczytu/zapisu danych z zewnątrz to **Sfera**, własny model obiektowy .NET firmy InsERT
+(dostarczany z SDK nexo, wymaga własnej licencjonowanej instalacji nexo). Ten projekt owija
+Sferę w serwer MCP, żeby narzędzia takie jak Claude mogły odpowiadać na pytania w stylu:
 
-- "List the invoices for client X in 2025, with line items."
-- "Which clients are billed on a recurring (monthly/quarterly/yearly) basis, and for what?"
-- "What's our average monthly revenue over the last 12 months? And our costs?"
-- "Draft a next-year budget based on this year's revenue and costs, including ZUS and tax."
+- "Pokaż faktury dla klienta X w 2025, z pozycjami."
+- "Którzy klienci są rozliczani cyklicznie (miesięcznie/kwartalnie/rocznie) i za co?"
+- "Jaki mamy średni miesięczny przychód z ostatnich 12 miesięcy? A koszty?"
+- "Zaproponuj budżet na kolejny rok na podstawie przychodów i kosztów tego roku, z ZUS i podatkiem."
 
-### Why Sfera and not raw SQL against the nexo database
+### Dlaczego Sfera, a nie surowe SQL do bazy nexo
 
-Direct SQL is tempting (and InsERT does support it for custom reports), but nexo's physical
-database schema **changes between versions** (see your SDK's `ZmianyModeluDanych_*.txt` files).
-Since this is meant to be used by different people on different nexo versions, hardcoded table
-names would quietly break for someone else. Sfera is the version-stable contract, at the cost of
-being slower than raw SQL for bulk reads - which is why this server keeps a local cache (see
-below) instead of re-querying Sfera on every question.
+Bezpośrednie SQL jest kuszące (InsERT wspiera to nawet dla własnych raportów), ale fizyczny
+schemat bazy nexo **zmienia się między wersjami** (zobacz pliki `ZmianyModeluDanych_*.txt` w
+Twoim SDK). Ponieważ ten projekt ma być używany przez różne osoby na różnych wersjach nexo,
+zahardkodowane nazwy tabel po cichu przestałyby działać komuś innemu. Sfera jest kontraktem
+stabilnym między wersjami, kosztem wolniejszego odczytu niż surowe SQL - stąd lokalny cache
+(patrz niżej) zamiast odpytywania Sfery przy każdym pytaniu.
 
-## How it works
+## Jak to działa
 
 ```
-nexo (Sfera) --sync--> local SQLite cache --analytics--> MCP tools --stdio--> your AI assistant
+nexo (Sfera) --sync--> lokalny cache SQLite --analizy--> narzędzia MCP --stdio--> Twój asystent AI
 ```
 
-- **NexoMcp.Core** - plain C#, no nexo dependency: the `Invoice`/`InvoiceLine`/`CashOperation`
-  model, the SQLite cache, and the analytics (recurring-invoice detection, monthly revenue,
-  monthly expenses, budget projection). Fully unit tested (`dotnet test`).
-- **NexoMcp.Server** - the MCP host. On startup (and then on a timer), it logs into nexo through
-  Sfera, reads sales invoices, purchase invoices, and bank/cash operations, and upserts them into
-  the local cache; the actual MCP tools only ever read from that cache, so answering a question
-  doesn't open a new Sfera session each time.
+- **NexoMcp.Core** - czysty C#, bez zależności od nexo: model (`Invoice`/`InvoiceLine`/
+  `CashOperation`), cache SQLite i analizy (wykrywanie cykliczności, miesięczne przychody,
+  miesięczne koszty, projekcja budżetu). Przetestowane jednostkowo (`dotnet test`) - głównie logika
+  analiz i cache; kategoryzacja operacji bankowych (ZUS/podatek/VAT, w `NexoMcp.Server`) nie ma
+  jeszcze własnych testów, bo wymaga typów z SDK nexo - patrz "Znane ograniczenia".
+- **NexoMcp.Server** - host MCP. Przy starcie (i potem okresowo, w tle - nie blokując startu
+  serwera) loguje się do nexo przez Sferę, odczytuje faktury sprzedaży, zakupu i operacje
+  bankowo-kasowe, i zapisuje je do lokalnego cache; same narzędzia MCP czytają tylko z tego
+  cache, więc odpowiedź na pytanie nie otwiera nowej sesji Sfery.
 
-The cache is disposable - it's rebuilt from nexo, not a system of record. If you upgrade and
-something looks off (or you see a database error mentioning a missing column/table), delete the
-cache file (`NEXO_MCP_CACHE_PATH`, default `cache/invoices.db`) and let the next startup rebuild
-it; there's no schema migration between versions yet.
+Cache jest jednorazowy/odtwarzalny - buduje się od nowa z nexo, to nie jest system źródłowy.
+Aktualizacja do wersji z innym schematem cache przebudowuje go automatycznie (patrz "Status") -
+nie trzeba już ręcznie usuwać pliku. To nie jest jednak migracja *danych*: po przebudowie
+historia sprzed aktualizacji po prostu wraca z nexo przy najbliższej pełnej synchronizacji
+(ostatnie 3 lata, na stałe w kodzie, raz na 24h - zobacz `SyncBackgroundService.cs`), a nie jest
+"migrowana" w żadnym innym sensie.
 
 ## Status
 
-Validated against a real nexo 62.0.2 installation (read-only, against a test company database):
-connects, logs in as an operator, and syncs sales invoices, purchase invoices, and bank/cash
-operations with correct amounts (net/gross/VAT cross-checked against real figures) into the
-cache - including real recurring-billing clients and real ZUS/tax-office payments, correctly
-picked out from a few hundred bank operations. Two real bugs only surfaced by that live run (not
-visible from the SDK docs alone): nexo's own `RodzajOperacjiBankowej` ZUS/tax parameter
-collections, which looked like a clean structural signal, turned out not to reliably indicate a
-transfer's actual purpose (every tax payment came back miscategorized as ZUS) - replaced with
-counterparty-name keyword matching, which the real data confirms is reliable (see
-`SferaCashFlowReader.cs`); and the nexo operator login was wrongly skipped under
-`NEXO_WINDOWS_AUTH=true` (fixed - see `SferaConnectionFactory.cs`). A couple of fields are still
-marked `TODO`/"best effort" in `SferaInvoiceReader.cs`'s comments (currency is hardcoded to PLN -
-see "Known limitations"). If something looks wrong against your installation or a different SDK
-version, the `Sfera/` folder is the only place nexo-specific field names appear - issues and PRs
-very welcome.
+Zweryfikowane na żywo na prawdziwej instalacji nexo 62.0.2 (odczyt, najpierw na testowej, potem
+na produkcyjnej bazie firmowej): łączy się, loguje jako operator, i synchronizuje faktury
+sprzedaży, zakupu oraz operacje bankowo-kasowe z poprawnymi kwotami (netto/brutto/VAT
+porównane z realnymi liczbami) - w tym prawdziwych klientów rozliczanych cyklicznie i
+prawdziwe płatności ZUS/US, poprawnie wyłowione z kilkuset operacji bankowych.
 
-Two non-obvious setup gotchas this project's own build already works around (see
-`NexoMcp.Server.csproj` and `Sfera/NexoSdkAssemblyResolver.cs` if you're porting this pattern
-elsewhere): Sfera loads part of the rest of the nexo SDK dynamically by assembly name at
-runtime, which .NET 8 (unlike classic .NET Framework) won't resolve just because the DLL sits
-next to the exe; and `DanePolaczenia.Jawne`'s `katalogBinariow` must be passed explicitly as
-`AppContext.BaseDirectory`, or it resolves relative to the process's current working directory
-instead of the executable's own folder.
+Projekt przeszedł kilka niezależnych rund przeglądu kodu (model Opus, bez pamięci między rundami)
+pod kątem poprawności i jakości, każda sprawdzająca poprawki poprzedniej od nowa (nie na słowo) i
+szukająca nowych problemów - część widoczna tylko po uruchomieniu na żywych danych, część tylko
+przy analizie kodu. Ostatnia runda uznała projekt za gotowy, z drobnymi uwagami tekstowymi (już
+uwzględnionymi poniżej/w "Znane ograniczenia"). Co zostało naprawione w trakcie tych rund:
 
-## Setup
+- **Koszty liczyły się podwójnie, a VAT wliczał się do kosztów.** Operacja bankowa rozliczająca
+  fakturę zakupu (już policzoną jako koszt) też wpadała do kosztów jako "Other", a VAT
+  odprowadzany do US liczył się jako koszt, mimo że przychód jest liczony netto z VAT. Naprawione
+  przez wykluczenie operacji rozliczających dokument, transferów wewnętrznych oraz transferów VAT -
+  rozpoznawanych trzema sygnałami: polem `TypTransferuVAT` dla przelewów z rachunku VAT, wzorcem
+  "/VAT/" w tytule dla przelewów w mechanizmie podzielonej płatności (potwierdzone na żywych
+  danych - to przelew do *dostawcy*, nie do urzędu skarbowego, ale rozlicza fakturę już policzoną
+  jako koszt), i wzorcem "/SFP/VAT.../JPK_V7..." dla zwykłego (nie split-payment) przelewu
+  deklaracji VAT do urzędu skarbowego z głównego rachunku - ten trzeci wzorzec nie został
+  potwierdzony na żywym przykładzie (testowana firma rozlicza VAT wyłącznie przez podzieloną
+  płatność), tylko wyprowadzony z potwierdzonego na żywo kształtu tytułu dla PIT/CIT
+  ("/TI/.../OKR/.../SFP/PIT4/TXT/...") - zobacz `SferaCashFlowReader.cs`. Rozliczenie przez
+  `Rozrachunek` bez bezpośredniego `PlatnoscDokumentu` nie jest jeszcze sprawdzane - patrz "Znane
+  ograniczenia".
+- **Synchronizacja przyrostowa trwale gubiła dane wprowadzone z opóźnieniem.** Każda
+  synchronizacja odczytywała tylko okno od ostatniej synchronizacji minus 7 dni - faktura zakupu
+  wprowadzona do nexo z opóźnieniem większym niż tydzień (typowe przy księgowości robionej raz w
+  miesiącu) nigdy nie trafiała do cache, i usunięty dokument starszy niż ten margines zostawał w
+  cache na zawsze. Naprawione: oprócz synchronizacji przyrostowej co godzinę, raz na 24h serwer
+  robi pełną synchronizację całego zachowywanego okna (3 lata, na stałe w kodzie) - zobacz
+  `SyncBackgroundService.cs`.
+- **Średnie i budżet pomijały miesiące bez danych i liczyły niedokończony miesiąc.** Średnia z
+  "ostatnich 12 miesięcy" liczyła się tylko z miesięcy, w których były jakieś faktury - dwa
+  stycznie rok po roku, bez niczego między nimi, liczyły się jak dwa kolejne miesiące. Naprawione:
+  `RevenueAnalyzer`/`ExpenseAnalyzer` budują teraz gęsty szereg miesięczny (z zerami w brakujących
+  miesiącach) i nigdy nie liczą bieżącego, niedokończonego miesiąca.
+- **Serwer nie startował wg instrukcji z README, i start faktycznie blokował się na synchronizacji.**
+  `NEXO_LOGIN` był w kodzie zawsze wymagany, ale przykład konfiguracji w README go nie podawał;
+  `NEXO_WINDOWS_AUTH=false` nie miał w ogóle zaimplementowanego logowania do SQL Servera; literówka
+  w `.csproj` psuła budowanie, gdy `NEXO_SDK_PATH` nie miał końcowego backslasha (dokładnie tak,
+  jak podawał przykład w README); pierwsza wersja przeniesienia synchronizacji do tła nadal
+  blokowała start hosta, bo nie oddawała sterowania przed pierwszym `await`. Wszystko naprawione -
+  zobacz "Konfiguracja" niżej.
+- **Jedno współdzielone połączenie SQLite blokowało zapytania narzędzi w trakcie synchronizacji.**
+  `NexoCache` otwiera teraz osobne połączenie na każdą operację (z WAL dla pliku na dysku), a
+  `SyncService` ma semafor, który nie dopuszcza dwóch równoległych synchronizacji.
+- **Kopiowanie plików SDK nadpisywało poprawne wersje zależności NuGet.** Projekt kopiuje całą
+  zawartość folderu `Bin` z SDK nexo (bo Sfera dociąga część z niego dynamicznie) - ale robił to
+  nawet dla plików, które NuGet już poprawnie umieścił w katalogu wynikowym (np. inna, niezgodna
+  binarnie wersja `Microsoft.Data.Sqlite`/`SQLitePCLRaw` niż ta, z którą projekt jest budowany i
+  testowany). Naprawione: kopiowanie pomija pliki już dostarczone przez NuGet.
+- Brak wersjonowania schematu cache powodował, że aktualizacja do nowszej wersji z innym
+  schematem kończyła się błędem SQL ("no such column") na każdym wywołaniu. Naprawione: cache
+  sprawdza teraz `PRAGMA user_version` i sam się przebudowuje przy niezgodności, zamiast wymagać
+  ręcznego usunięcia pliku.
+- Wykrywanie cykliczności rzucało wyjątkiem na niemożliwej dacie w opisie pozycji (np. "31
+  lutego") i nie rozpoznawało większości polskich nazw miesięcy w dopełnieniu ("stycznia",
+  "lutego"...) - rozpoznawało tylko mianownik. Pozycje bez symbolu katalogowego na tej samej
+  pozycji na fakturze (np. zawsze pierwsza linia) błędnie łączyły się w jedną serię, nawet gdy to
+  były różne produkty. Wszystko naprawione.
+- Walutę brano zawsze jako PLN, mimo że Sfera ją udostępnia (`Dokument.Waluta.Symbol`) - teraz
+  jest mapowana poprawnie (kwoty w walutach innych niż PLN nie są jeszcze przeliczane - patrz
+  "Znane ograniczenia").
+- **Dokumenty unieważnione/przejściowe liczyły się jak zwykłe, prawidłowe dokumenty.** Naprawione:
+  dokumenty w stanie `StatusDokumentu.Uniewazniony`/`Przejsciowy` są teraz pomijane tak samo jak te
+  w koszu (`SferaInvoiceReader.cs`) - choć, w odróżnieniu od filtra na kosz, nie zostało to osobno
+  zweryfikowane na żywym dokumencie w tym konkretnym stanie - patrz "Znane ograniczenia".
 
-**Prerequisites:** Windows, [.NET 8 SDK](https://dotnet.microsoft.com/download), and your own
-licensed InsERT nexo installation (Subiekt or Gestor).
+Ten plik i opisy narzędzi MCP są świadomie po polsku - to oprogramowanie dla polskiego rynku
+(nexo to polski system), nawet jeśli komentarze w samym kodzie źródłowym są po angielsku (typowe
+dla kodu open source, który może czytać/rozwijać ktoś spoza Polski).
 
-### 1. Point the build at your nexo SDK
+Jeśli coś wygląda źle na Twojej instalacji albo innej wersji SDK, nazwy pól specyficzne dla nexo
+żyją wyłącznie w folderze `src/NexoMcp.Server/Sfera/` - to tam trzeba szukać, i tam mile widziany
+PR z poprawką.
 
-The Sfera assemblies (`InsERT.Moria.*.dll`) are proprietary and **not included** in this repo.
-Either:
+## Konfiguracja
 
-- Copy them from your nexo SDK's `Bin` folder into a local `sdk/` folder at the repo root
-  (gitignored), or
-- Set the `NEXO_SDK_PATH` environment variable to that `Bin` folder directly.
+**Wymagania:** Windows, [.NET 8 SDK](https://dotnet.microsoft.com/download) i własna,
+licencjonowana instalacja InsERT nexo (Subiekt albo Gestor).
 
-Required files: `InsERT.Moria.API.dll`, `InsERT.Moria.DaneDomyslne.dll`,
-`InsERT.Moria.ModelDanych.dll`, `InsERT.Moria.Sfera.dll`, `InsERT.Mox.Core.dll`,
-`InsERT.Mox.EntityFramework.Core.dll`, `InsERT.Mox.EntityFrameworkSupport.dll`, plus the runtime
-files `Xml.pak`, `sni.dll`, `ijwhost.dll`, `Microsoft.Data.SqlClient.SNI.dll`.
+### 1. Wskaż SDK nexo dla budowania projektu
 
-### 2. Configure the connection
+Biblioteki Sfery (`InsERT.Moria.*.dll`) są własnością InsERT i **nie są częścią tego repo** (nie
+mamy licencji na ich redystrybucję). Albo:
+
+- Skopiuj **cały** folder `Bin` ze swojego SDK nexo do lokalnego folderu `sdk/` w katalogu
+  głównym repo (jest w `.gitignore`), albo
+- Ustaw zmienną środowiskową `NEXO_SDK_PATH` wprost na ten folder `Bin`.
+
+Skopiuj **cały folder**, nie tylko kilka plików - Sfera dociąga część SDK dynamicznie w trakcie
+działania (np. `InsERT.Mox.Launcher.dll`), a projekt i tak kopiuje wszystkie `*.dll`/`*.pak` z
+tego folderu do katalogu wynikowego.
+
+### 2. Skonfiguruj połączenie
 
 ```powershell
 cp .env.example .env
 ```
 
-Fill in `NEXO_SERVER` / `NEXO_DATABASE` (and `NEXO_LOGIN` / `NEXO_PASSWORD` if you're not using
-Windows authentication). See `.env.example` for every variable.
+Wypełnij `NEXO_SERVER` / `NEXO_DATABASE` / `NEXO_LOGIN` (login operatora nexo - wymagany
+zawsze, niezależnie od sposobu łączenia z SQL Serverem) i ewentualnie `NEXO_SQL_LOGIN` /
+`NEXO_SQL_PASSWORD`, jeśli `NEXO_WINDOWS_AUTH=false`. Pełna lista zmiennych jest w
+`.env.example`.
 
-### 3. Build and test
+### 3. Zbuduj i przetestuj
 
 ```powershell
 dotnet build NexoMcp.sln
 dotnet test tests/NexoMcp.Core.Tests/NexoMcp.Core.Tests.csproj
 ```
 
-### 4. Point your MCP client at it
+### 4. Podłącz swojego klienta MCP
 
-Example for an MCP client's JSON config (adjust the path to your build output):
+Przykład konfiguracji JSON klienta MCP (dopasuj ścieżkę do swojego katalogu wynikowego):
 
 ```json
 {
   "mcpServers": {
     "nexo": {
-      "command": "C:/path/to/nexo-mcp/src/NexoMcp.Server/bin/Debug/net8.0-windows10.0.17763.0/win-x64/NexoMcp.Server.exe",
+      "command": "C:/sciezka/do/nexo-mcp/src/NexoMcp.Server/bin/Debug/net8.0-windows10.0.17763.0/win-x64/NexoMcp.Server.exe",
       "env": {
         "NEXO_SERVER": "(local)\\INSERTNEXO",
-        "NEXO_DATABASE": "YourCompanyDb"
+        "NEXO_DATABASE": "TwojaBazaFirmowa",
+        "NEXO_LOGIN": "TwojLoginOperatora",
+        "NEXO_PASSWORD": "TwojeHaslo"
       }
     }
   }
 }
 ```
 
-(Or load the same variables from your `.env` file, depending on what your client supports.)
+(Albo wczytaj te same zmienne z pliku `.env`, zależnie od tego, co wspiera Twój klient.)
 
-## Tools
+## Narzędzia
 
-| Tool | Description |
+| Narzędzie | Opis |
 |---|---|
-| `list_invoices` | List cached invoices (headers only), filterable by date range, client/supplier, and direction (sale/purchase). |
-| `get_invoice` | Full detail of one invoice (sale or purchase), including every line item. |
-| `find_recurring_invoices` | Every client+product pair billed at least 3 times, labeled Monthly/Quarterly/Yearly/Irregular by how regular the spacing actually is (nothing is hidden for being imperfectly regular), with their detected period where parseable from the line description. |
-| `get_monthly_revenue` | Calendar-month sales revenue breakdown and average. |
-| `get_monthly_expenses` | Calendar-month cost breakdown: purchase invoices, ZUS, tax, other bank/cash outflows. |
-| `project_budget` | Next-year monthly budget for revenue, costs, and their net (flat trailing average, or seasonal per-month average), with independent growth rates for revenue and costs. |
-| `sync_invoices` | Force a re-sync from nexo right now (otherwise runs automatically). |
-| `get_sync_status` | When the cache was last synced. |
+| `list_invoices` | Lista faktur z cache (tylko nagłówki), filtrowana po zakresie dat, kliencie/dostawcy i kierunku (sprzedaż/zakup). |
+| `get_invoice` | Pełny szczegół jednej faktury (sprzedaży lub zakupu), z każdą pozycją. |
+| `find_recurring_invoices` | Każda para klient+produkt rozliczana co najmniej 3 razy, oznaczona jako `Monthly`/`Quarterly`/`Yearly`/`Irregular` według rzeczywistej regularności odstępów (nic nie jest ukrywane za niedoskonałą regularność - z pewną tolerancją na okazjonalny skok/przesunięcie, patrz "Znane ograniczenia"), z wykrytym okresem, jeśli da się go odczytać z opisu pozycji. |
+| `get_monthly_revenue` | Rozkład przychodów sprzedaży po miesiącach i średnia. |
+| `get_monthly_expenses` | Rozkład kosztów po miesiącach: faktury zakupu, ZUS, podatek, inne operacje bankowo-kasowe. |
+| `project_budget` | Budżet na kolejny rok dla przychodów, kosztów i ich różnicy netto (płaska średnia z ostatnich 12 miesięcy albo sezonowa średnia per miesiąc), z niezależną stopą wzrostu dla przychodów i kosztów. |
+| `sync_invoices` | Wymusza natychmiastową synchronizację z nexo (inaczej dzieje się to automatycznie). |
+| `get_sync_status` | Kiedy cache był ostatnio synchronizowany. |
 
-## Known limitations
+## Znane ograniczenia
 
-- No dedicated "billing period" field exists anywhere in nexo's data model - `find_recurring_invoices`
-  parses it out of the line's free-text description (a handful of common Polish phrasings); a
-  `null` period means it couldn't be parsed, not that there wasn't one.
-- Invoice due date isn't populated yet (see "Status" above).
-- Currency is hardcoded to PLN.
-- `clientSymbol` is currently nexo's internal numeric client id, not a human-readable customer
-  code - the dedicated code/symbol field on nexo's client entity couldn't be confirmed from the
-  SDK docs alone. `clientName` is read normally; tax id (NIP) isn't surfaced yet.
-- ZUS/tax categorization of bank and cash operations is keyword-matching on the counterparty
-  name/title ("ZUS", "Skarbow[y/a]", "podat..."), not a structural nexo field - see "Status".
-  A ZUS/tax payment made under an unrecognized counterparty name would land in "Other" instead.
-- Cost from a purchase invoice is counted in the month it was *issued*, not when it was actually
-  paid; `get_monthly_expenses`/`project_budget`'s cost side mixes that accrual-basis number with
-  cash-basis bank/cash outflows (ZUS, tax, etc.) - good enough for a first budget draft, but not
-  a strict cash-flow statement.
-- `project_budget` is a simple historical average with an optional manual growth rate, not a
-  forecasting model - a first draft, not a substitute for judgement.
+- W modelu danych nexo nie istnieje żadne dedykowane pole "okres rozliczeniowy" -
+  `find_recurring_invoices` wyciąga je z wolnego tekstu opisu pozycji (kilka popularnych polskich
+  zwrotów); `null` jako okres znaczy "nie udało się rozpoznać", nie "nie było okresu".
+- Klasyfikacja Monthly/Quarterly/Yearly w `find_recurring_invoices` toleruje *pewną* nieregularność
+  odstępów (np. jeden pominięty/przesunięty miesiąc u klienta rozliczanego miesięcznie), ale to nie
+  jest gwarancja - kilka nieregularności naraz, albo jedna duża, i para trafi do `Irregular`, mimo
+  że w praktyce jest rozliczana cyklicznie. `Irregular` to uczciwa etykieta w takim przypadku, a
+  nie błąd.
+- `clientSymbol` korzysta z `Sygnatura.PelnaSygnatura` klienta, jeśli jest ustawiona, a w
+  przeciwnym razie z wewnętrznego numerycznego id - jeśli Twoja kartoteka klientów nie ma
+  wypełnionych sygnatur, zobaczysz numeryczne id.
+- Kategoryzacja ZUS/podatek dla operacji bankowych i kasowych to dopasowywanie słów kluczowych w
+  nazwie kontrahenta/tytule ("ZUS", "Skarbow[y/a]", "podat...") z granicą słowa (nie dopasuje się
+  w środku innego słowa), a nie strukturalne pole nexo - zobacz "Status". Płatność ZUS/podatku pod
+  nierozpoznaną nazwą kontrahenta trafi do "Other". Ta logika (w `SferaCashFlowReader.cs`) nie ma
+  jeszcze własnych testów jednostkowych, bo wymaga typów z SDK nexo, których testy w `NexoMcp.Core`
+  nie mają dostępu.
+- Koszt z faktury zakupu liczy się w miesiącu jej *wystawienia*, nie faktycznej zapłaty;
+  `get_monthly_expenses`/`project_budget` po stronie kosztów miesza tę liczbę memoriałową z
+  kasowymi operacjami bankowo-kasowymi (ZUS, podatek itd.) - wystarczające na pierwszy szkic
+  budżetu, ale to nie jest ścisły rachunek przepływów pieniężnych (cash flow).
+- Kwoty w walutach innych niż PLN nie są przeliczane - jeśli wystawiasz faktury w EUR albo masz
+  konto walutowe, te kwoty wejdą do sum tak, jakby były w PLN. Waluta dokumentu jest poprawnie
+  odczytywana (`currency` w `list_invoices`/`get_invoice`), ale sumy w analizach jej nie
+  uwzględniają - traktuj zestawienia jako nieprecyzyjne, jeśli masz dokumenty w innych walutach.
+- `project_budget` to prosta średnia historyczna z opcjonalną ręczną stopą wzrostu, nie model
+  prognostyczny - pierwszy szkic, nie zamiennik własnej oceny.
+- Przychody/koszty sumują się po wszystkich dokumentach `DokumentDS`/`DokumentDZ` bez filtrowania
+  po ich typie (np. zaliczkowe vs końcowe) - na danych testowych wszystkie dokumenty były zwykłymi
+  fakturami (`FS`/`FZ`), bez faktur zaliczkowych, więc ten konkretny scenariusz nie został
+  sprawdzony na żywo. Jeśli wystawiasz/otrzymujesz faktury zaliczkowe rozliczane potem fakturą
+  końcową za to samo zamówienie, sprawdź w `list_invoices`, czy zaliczkowa i końcowa nie wchodzą
+  obie do `get_monthly_revenue`/`get_monthly_expenses` jako odrębny przychód/koszt.
+- **Rozliczenie faktury zakupu przez `Rozrachunek`, bez bezpośredniego `PlatnoscDokumentu`, może
+  się liczyć podwójnie** - raz jako koszt faktury (memoriałowo, w miesiącu wystawienia) i drugi
+  raz jako operacja bankowa/kasowa w kategorii "Other" (bo nie ma sygnału, który łączyłby tę
+  operację z konkretną fakturą - zobacz `SferaCashFlowReader.cs`). To nie jest sprawdzane dziś,
+  nie dlatego że jest niemożliwe do sprawdzenia, ale dlatego że nie zostało jeszcze zrobione:
+  `Rozrachunek`/`PrzeplywFinansowy` mają strukturalne odwołania (`Dokument`, `PrzeplywFinansowy`),
+  które prawdopodobnie dałoby się wykorzystać do dopasowania - `DokumentZrodlowy` (pole
+  tekstowe) nie jest jedyną możliwą ścieżką, tylko tą, która została odrzucona jako za mało
+  wiarygodna. Jeśli rozliczasz faktury zakupu głównie przez rozrachunki, a nie przez proste
+  przelewy z `PlatnoscDokumentu`, koszty z `get_monthly_expenses`/`project_budget` mogą być
+  zawyżone.
+- Filtrowanie dokumentów unieważnionych/przejściowych (`StatusDokumentu.Uniewazniony`/
+  `Przejsciowy` w `SferaInvoiceReader.cs`) opiera się na polach potwierdzonych przez refleksję na
+  prawdziwym SDK, ale - w odróżnieniu od `IsInRecycleBin` - nie zostało osobno zweryfikowane na
+  żywym dokumencie w tym konkretnym stanie; jeśli Twoja instalacja ma unieważnione/przejściowe
+  dokumenty w historii, warto sprawdzić, czy faktycznie wypadają z wyników.
+- Korekty faktur sumują się z oryginałem na założeniu, że nexo przechowuje ich kwoty jako różnicę
+  (dodatnią/ujemną) względem oryginału, a nie jako nowy stan końcowy - to konkretne założenie
+  **nie zostało zweryfikowane na żywej korekcie** (firma, na której to było testowane, nie miała
+  żadnej korekty w całej historii dokumentów). Jeśli Twoje korekty wyglądają inaczej, przychody i
+  koszty za korygowany miesiąc mogą być błędne - zobacz `RevenueAnalyzer.cs`/`ExpenseAnalyzer.cs`.
 
-## Contributing
+## Współpraca
 
-Issues and PRs welcome, especially test reports against a real nexo instance and corrections to
-`SferaInvoiceReader.cs`.
+Issues i PR mile widziane, zwłaszcza raporty z testów na prawdziwej instalacji nexo i poprawki do
+plików w `src/NexoMcp.Server/Sfera/`.
 
-## About
+## O projekcie
 
-This project started out of work automating recurring billing on top of InsERT nexo, done by
-[Proinet](https://proinet.pl/). If you're interested in similar automation for your own nexo
-setup, feel free to get in touch via [proinet.pl](https://proinet.pl/).
+Ten projekt powstał przy pracach nad automatyzacją cyklicznego rozliczania na InsERT nexo,
+zrobionych przez [Proinet](https://proinet.pl/). Jeśli interesuje Cię podobna automatyzacja dla
+własnej instalacji nexo, śmiało napisz przez [proinet.pl](https://proinet.pl/).
 
-## License
+## Licencja
 
 [MIT](LICENSE)

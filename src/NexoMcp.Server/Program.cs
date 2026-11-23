@@ -11,8 +11,15 @@ NexoSdkAssemblyResolver.EnsureRegistered();
 
 var config = NexoConfig.FromEnvironment();
 
-Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(config.CacheDbPath))!);
-var cache = new NexoCache($"Data Source={config.CacheDbPath}");
+// A relative NEXO_MCP_CACHE_PATH must not be resolved against the process's current working
+// directory: an MCP client is not guaranteed to launch this server from any particular folder
+// (the exact problem already fixed for katalogBinariow in SferaConnectionFactory - a relative
+// cache path could otherwise land next to wherever the client happens to be, or fail outright).
+string cacheDbPath = Path.IsPathRooted(config.CacheDbPath)
+    ? config.CacheDbPath
+    : Path.Combine(AppContext.BaseDirectory, config.CacheDbPath);
+Directory.CreateDirectory(Path.GetDirectoryName(cacheDbPath)!);
+var cache = new NexoCache($"Data Source={cacheDbPath}");
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -29,41 +36,11 @@ builder.Services
     .WithTools<AnalyticsTools>()
     .WithTools<SyncTools>();
 
+// Runs the startup and periodic sync without blocking the MCP transport from coming up - see
+// SyncBackgroundService's own doc comment for why this used to time out an MCP client's
+// "initialize" handshake.
+builder.Services.AddHostedService<SyncBackgroundService>();
+
 var host = builder.Build();
-
-var logger = host.Services.GetRequiredService<ILogger<Program>>();
-
-// Best-effort startup sync: if nexo/Sfera isn't reachable right now, log it and keep serving
-// whatever is already in the cache rather than failing to start.
-try
-{
-    var result = SyncService.Sync(config, cache);
-    logger.LogInformation(
-        "Synchronizacja startowa: {Invoices} faktur sprzedazy, {Purchases} faktur zakupu, {CashOps} operacji bankowych/kasowych.",
-        result.Invoices, result.PurchaseInvoices, result.CashOperations);
-}
-catch (Exception ex)
-{
-    logger.LogWarning(ex, "Synchronizacja startowa nie powiodla sie - dziala na dotychczasowym cache.");
-}
-
-_ = Task.Run(async () =>
-{
-    while (true)
-    {
-        await Task.Delay(TimeSpan.FromMinutes(Math.Max(1, config.SyncIntervalMinutes)));
-        try
-        {
-            var result = SyncService.Sync(config, cache);
-            logger.LogInformation(
-                "Synchronizacja okresowa: {Invoices} faktur sprzedazy, {Purchases} faktur zakupu, {CashOps} operacji bankowych/kasowych.",
-                result.Invoices, result.PurchaseInvoices, result.CashOperations);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Synchronizacja okresowa nie powiodla sie.");
-        }
-    }
-});
 
 await host.RunAsync();

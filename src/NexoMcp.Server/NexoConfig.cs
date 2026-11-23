@@ -1,3 +1,5 @@
+using InsERT.Mox.Product;
+
 namespace NexoMcp.Server;
 
 /// <summary>
@@ -13,6 +15,10 @@ public sealed class NexoConfig
     /// <summary>Governs only the SQL Server connection layer. Logging into Sfera as a nexo operator (<see cref="Login"/>/<see cref="Password"/>) is a separate, always-required step on top of this.</summary>
     public bool WindowsAuthentication { get; init; } = true;
 
+    /// <summary>SQL Server login - only used (and only required) when <see cref="WindowsAuthentication"/> is false.</summary>
+    public string? SqlLogin { get; init; }
+    public string? SqlPassword { get; init; }
+
     /// <summary>nexo operator login - always required, independent of <see cref="WindowsAuthentication"/>.</summary>
     public required string Login { get; init; }
     public string? Password { get; init; }
@@ -20,9 +26,10 @@ public sealed class NexoConfig
     /// <summary>
     /// Which InsERT product license to connect as - affects which modules/menus Sfera exposes,
     /// not whether sales invoices can be read. Common values: "Subiekt", "Gestor". See your
-    /// nexo SDK's ProductId enum for the full list.
+    /// nexo SDK's ProductId enum for the full list. Parsed eagerly here (not only when a sync
+    /// first runs) so a typo fails loudly at startup instead of as a logged warning later.
     /// </summary>
-    public string ProductId { get; init; } = "Subiekt";
+    public required ProductId ProductId { get; init; }
 
     public string CacheDbPath { get; init; } = "cache/invoices.db";
     public int SyncIntervalMinutes { get; init; } = 60;
@@ -43,14 +50,32 @@ public sealed class NexoConfig
 
         bool windowsAuth = !bool.TryParse(Environment.GetEnvironmentVariable("NEXO_WINDOWS_AUTH"), out var parsed) || parsed;
 
+        string? sqlLogin = Environment.GetEnvironmentVariable("NEXO_SQL_LOGIN");
+        if (!windowsAuth && string.IsNullOrWhiteSpace(sqlLogin))
+        {
+            throw new InvalidOperationException(
+                "NEXO_SQL_LOGIN jest wymagany, gdy NEXO_WINDOWS_AUTH=false (login do SQL Servera, " +
+                "inny niz NEXO_LOGIN, ktory jest loginem operatora nexo).");
+        }
+
+        string productIdRaw = Environment.GetEnvironmentVariable("NEXO_PRODUCT_ID") ?? "Subiekt";
+        if (!Enum.TryParse<ProductId>(productIdRaw, ignoreCase: true, out var productId))
+        {
+            throw new InvalidOperationException(
+                $"NEXO_PRODUCT_ID=\"{productIdRaw}\" nie jest rozpoznawanym produktem InsERT (np. Subiekt, Gestor). " +
+                "Sprawdz liste wartosci w ProductId z Twojego SDK nexo.");
+        }
+
         return new NexoConfig
         {
             Server = server,
             Database = database,
             WindowsAuthentication = windowsAuth,
+            SqlLogin = sqlLogin,
+            SqlPassword = Environment.GetEnvironmentVariable("NEXO_SQL_PASSWORD"),
             Login = login,
             Password = Environment.GetEnvironmentVariable("NEXO_PASSWORD"),
-            ProductId = Environment.GetEnvironmentVariable("NEXO_PRODUCT_ID") ?? "Subiekt",
+            ProductId = productId,
             CacheDbPath = Environment.GetEnvironmentVariable("NEXO_MCP_CACHE_PATH") ?? "cache/invoices.db",
             SyncIntervalMinutes = int.TryParse(Environment.GetEnvironmentVariable("NEXO_MCP_SYNC_INTERVAL_MINUTES"), out var minutes)
                 ? minutes
