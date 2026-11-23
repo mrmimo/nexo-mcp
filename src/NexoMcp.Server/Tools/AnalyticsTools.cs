@@ -10,13 +10,15 @@ namespace NexoMcp.Server.Tools;
 public sealed class AnalyticsTools(NexoCache cache)
 {
     [McpServerTool(Name = "find_recurring_invoices"), Description(
-        "Finds client+product pairs that are billed on a regular cadence (monthly/quarterly/yearly), " +
-        "based on the spacing between their issue dates. For each series, also attempts to read the " +
+        "Finds every client+product pair billed at least minOccurrences times, labeled by how regular " +
+        "the spacing between issue dates actually is: Monthly, Quarterly, Yearly, or Irregular - nothing " +
+        "is hidden just for being imperfectly regular (a client billed monthly but with an occasional " +
+        "skipped/delayed month still shows up as Monthly). For each series, also attempts to read the " +
         "billing period (e.g. \"za okres od .. do ..\") out of the line description text - nexo has no " +
         "dedicated period field, so a null period on an occurrence means it could not be parsed, not " +
         "that there was no period.")]
     public object FindRecurringInvoices(
-        [Description("Minimum number of occurrences before a client+product pair counts as recurring. Default 3.")] int minOccurrences = 3)
+        [Description("Minimum number of occurrences before a client+product pair is reported at all. Default 3.")] int minOccurrences = 3)
     {
         var invoices = cache.GetInvoices(direction: Direction.Sale);
         var series = RecurringInvoiceDetector.Detect(invoices, minOccurrences);

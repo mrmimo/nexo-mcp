@@ -136,7 +136,7 @@ Example for an MCP client's JSON config (adjust the path to your build output):
 |---|---|
 | `list_invoices` | List cached invoices (headers only), filterable by date range, client/supplier, and direction (sale/purchase). |
 | `get_invoice` | Full detail of one invoice (sale or purchase), including every line item. |
-| `find_recurring_invoices` | Client+product pairs billed on a regular cadence, with their detected period where parseable from the line description. |
+| `find_recurring_invoices` | Every client+product pair billed at least 3 times, labeled Monthly/Quarterly/Yearly/Irregular by how regular the spacing actually is (nothing is hidden for being imperfectly regular), with their detected period where parseable from the line description. |
 | `get_monthly_revenue` | Calendar-month sales revenue breakdown and average. |
 | `get_monthly_expenses` | Calendar-month cost breakdown: purchase invoices, ZUS, tax, other bank/cash outflows. |
 | `project_budget` | Next-year monthly budget for revenue, costs, and their net (flat trailing average, or seasonal per-month average), with independent growth rates for revenue and costs. |

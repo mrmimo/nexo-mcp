@@ -42,8 +42,12 @@ public sealed record RecurringSeries(
 public static class RecurringInvoiceDetector
 {
     // Coefficient of variation (stddev / mean) of the gaps between consecutive invoices.
-    // Below this, the cadence is considered regular enough to call "recurring".
-    private const double RegularityThreshold = 0.25;
+    // Below this, the cadence is considered regular enough to name (Monthly/Quarterly/Yearly)
+    // rather than just "Irregular". Confirmed against a real company's production data: a
+    // client billed monthly but with the occasional skipped or delayed month (one gap of ~50
+    // days among mostly ~30-day ones) is still, for a human looking for recurring clients, a
+    // recurring client - a tighter threshold here previously excluded them entirely (see below).
+    private const double RegularityThreshold = 0.35;
 
     public static IReadOnlyList<RecurringSeries> Detect(IEnumerable<Invoice> invoices, int minOccurrences = 3)
     {
@@ -73,12 +77,13 @@ public static class RecurringInvoiceDetector
             double stdDev = Math.Sqrt(variance);
             double coefficientOfVariation = meanGap == 0 ? double.MaxValue : stdDev / meanGap;
 
+            // Previously excluded anything that landed on Irregular here - that silently
+            // dropped real recurring clients whose billing wasn't perfectly regular. Any
+            // client+product pair billed at least minOccurrences times is worth surfacing;
+            // Periodicity.Irregular is an honest label on the result, not a reason to hide it.
             var periodicity = coefficientOfVariation > RegularityThreshold
                 ? Periodicity.Irregular
                 : ClassifyByMeanGap(meanGap);
-
-            if (periodicity == Periodicity.Irregular)
-                continue;
 
             var occurrences = ordered.Select(x =>
             {

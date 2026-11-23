@@ -29,8 +29,11 @@ public class RecurringInvoiceDetectorTests
     }
 
     [Fact]
-    public void Does_not_flag_irregular_one_off_purchases_as_recurring()
+    public void Labels_sporadic_purchases_as_irregular_instead_of_hiding_them()
     {
+        // Hitting minOccurrences at all is still worth surfacing to a human looking for
+        // recurring clients - honestly labeled "Irregular", not silently dropped (a client
+        // billed almost-but-not-quite regularly is exactly this tool's reason to exist).
         var invoices = new List<Invoice>
         {
             Invoice(1, new DateOnly(2025, 1, 5), "ACME", 100m, lines: [Line(1, "CABLE", "Kabel USB", 100m)]),
@@ -40,7 +43,32 @@ public class RecurringInvoiceDetectorTests
 
         var series = RecurringInvoiceDetector.Detect(invoices);
 
-        Assert.Empty(series);
+        var s = Assert.Single(series);
+        Assert.Equal(Periodicity.Irregular, s.Periodicity);
+        Assert.Equal(3, s.Occurrences.Count);
+    }
+
+    [Fact]
+    public void Still_names_the_cadence_despite_one_delayed_invoice()
+    {
+        // Modeled on a real production client: mostly ~30-day gaps with one ~50-day gap where
+        // a month was skipped/delayed - still clearly a monthly client to a human reader.
+        var dates = new[]
+        {
+            new DateOnly(2025, 1, 15), new DateOnly(2025, 2, 24), new DateOnly(2025, 3, 16),
+            new DateOnly(2025, 4, 14), new DateOnly(2025, 5, 19), new DateOnly(2025, 6, 15),
+            new DateOnly(2025, 8, 6), // ~52-day gap - July skipped
+            new DateOnly(2025, 9, 14), new DateOnly(2025, 10, 2), new DateOnly(2025, 10, 20),
+            new DateOnly(2025, 11, 15),
+        };
+        var invoices = dates.Select((d, i) => Invoice(i + 1, d, "ACME", 377m,
+            lines: [Line(1, "POZ-1", "Za okres", 377m)])).ToList();
+
+        var series = RecurringInvoiceDetector.Detect(invoices);
+
+        var s = Assert.Single(series);
+        Assert.Equal(Periodicity.Monthly, s.Periodicity);
+        Assert.Equal(11, s.Occurrences.Count);
     }
 
     [Fact]
