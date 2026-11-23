@@ -1,0 +1,76 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <Platform>x64</Platform>
+    <UseWPF>true</UseWPF>
+    <TargetFramework>net8.0-windows10.0.17763.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>NexoMcp.Server</AssemblyName>
+
+    <!--
+      Path to the InsERT nexo SDK's Bin folder, which holds the proprietary Sfera assemblies
+      this project references below. Those DLLs come from your own licensed nexo installation
+      and are never part of this repository (see README.md "Konfiguracja" / "Setup") - point
+      this at them either by setting the NEXO_SDK_PATH environment variable, or by copying the
+      DLLs into a local "sdk/" folder at the repo root (gitignored).
+    -->
+    <NexoSdkBinPath Condition="'$(NexoSdkBinPath)' == '' and '$(NEXO_SDK_PATH)' != ''">$(NEXO_SDK_PATH)</NexoSdkBinPath>
+    <NexoSdkBinPath Condition="'$(NexoSdkBinPath)' == ''">$(MSBuildThisFileDirectory)..\..\sdk\</NexoSdkBinPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" Version="0.2.0-preview.3" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NexoMcp.Core\NexoMcp.Core.csproj" />
+  </ItemGroup>
+
+  <!--
+    Proprietary InsERT nexo SDK references - NOT shipped in this repo (no license to redistribute
+    them). See the NexoSdkBinPath property above for where this build expects to find them.
+  -->
+  <ItemGroup>
+    <Reference Include="InsERT.Moria.API">
+      <HintPath>$(NexoSdkBinPath)InsERT.Moria.API.dll</HintPath>
+    </Reference>
+    <Reference Include="InsERT.Moria.DaneDomyslne">
+      <HintPath>$(NexoSdkBinPath)InsERT.Moria.DaneDomyslne.dll</HintPath>
+    </Reference>
+    <Reference Include="InsERT.Moria.ModelDanych">
+      <HintPath>$(NexoSdkBinPath)InsERT.Moria.ModelDanych.dll</HintPath>
+    </Reference>
+    <Reference Include="InsERT.Moria.Sfera">
+      <HintPath>$(NexoSdkBinPath)InsERT.Moria.Sfera.dll</HintPath>
+    </Reference>
+    <Reference Include="InsERT.Mox.Core">
+      <HintPath>$(NexoSdkBinPath)InsERT.Mox.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="InsERT.Mox.EntityFramework.Core">
+      <HintPath>$(NexoSdkBinPath)InsERT.Mox.EntityFramework.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="InsERT.Mox.EntityFrameworkSupport">
+      <HintPath>$(NexoSdkBinPath)InsERT.Mox.EntityFrameworkSupport.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Native/runtime files the Sfera assemblies load at runtime - copied next to the build output. -->
+  <Target Name="CopyNexoSdkRuntimeFiles" AfterTargets="Build">
+    <ItemGroup>
+      <NexoSdkRuntimeFile Include="$(NexoSdkBinPath)Xml.pak" />
+      <NexoSdkRuntimeFile Include="$(NexoSdkBinPath)sni.dll" />
+      <NexoSdkRuntimeFile Include="$(NexoSdkBinPath)ijwhost.dll" />
+      <NexoSdkRuntimeFile Include="$(NexoSdkBinPath)Microsoft.Data.SqlClient.SNI.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(NexoSdkRuntimeFile)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" Condition="Exists('%(NexoSdkRuntimeFile.Identity)')" />
+  </Target>
+
+</Project>

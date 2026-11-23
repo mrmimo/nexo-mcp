@@ -1,0 +1,40 @@
+# Build output
+bin/
+obj/
+*.dll
+*.pdb
+*.exe
+
+# Vendor assemblies from the proprietary InsERT nexo SDK - never committed.
+# Each developer/user supplies these locally from their own licensed nexo
+# installation. See README.md "Setup" for how to point the build at them.
+# Whole folders are ignored (not just *.dll) because the SDK also ships non-DLL
+# runtime files (e.g. Xml.pak) that must never be committed either.
+/sdk/
+lib/
+vendor/
+*.nupkg
+
+# Local secrets / connection data - never committed, see .env.example
+.env
+.env.*
+!.env.example
+appsettings.*.local.json
+*.local.json
+
+# Local cache database built from the user's own nexo data (contains real
+# invoices/clients) - must never be committed.
+*.db
+*.db-shm
+*.db-wal
+cache/
+
+# Editor/OS noise
+.vs/
+.vscode/
+*.user
+.DS_Store
+Thumbs.db
+
+# Test results
+TestResults/
