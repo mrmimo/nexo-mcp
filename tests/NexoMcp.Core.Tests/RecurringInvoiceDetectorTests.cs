@@ -61,6 +61,9 @@ public class RecurringInvoiceDetectorTests
     [InlineData("Abonament za okres od 01.03.2025 do 31.03.2025", "2025-03-01", "2025-03-31")]
     [InlineData("Usluga hostingu za 03.2025", "2025-03-01", "2025-03-31")]
     [InlineData("Czynsz za marzec 2025", "2025-03-01", "2025-03-31")]
+    // Real phrasings observed on this company's own live invoices (end date only, no start date).
+    [InlineData("Za okres do 25-10-2026", "2026-10-01", "2026-10-25")]
+    [InlineData("Za okres do 14-listopad 2026", "2026-11-01", "2026-11-14")]
     public void Parses_known_period_phrasings(string description, string expectedFrom, string expectedTo)
     {
         var result = RecurringInvoiceDetector.TryParsePeriod(description, new DateOnly(2025, 3, 1));

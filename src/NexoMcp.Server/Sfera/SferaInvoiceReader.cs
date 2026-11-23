@@ -80,7 +80,13 @@ public static class SferaInvoiceReader
             decimal quantity = p.Ilosc;
             decimal unitNetPrice = quantity == 0 ? 0 : netValue / quantity;
 
-            string productSymbol = p.AsortymentAktualny?.Symbol ?? p.AsortymentWybrany?.Symbol ?? $"POZ-{lineNo}";
+            // Confirmed against real data: a line's Symbol can come back as "" (not null) - e.g.
+            // generic/recurring service lines with no catalog code - which would otherwise skip
+            // the fallback below via plain ?? chaining.
+            string? rawSymbol = p.AsortymentAktualny?.Symbol;
+            if (string.IsNullOrWhiteSpace(rawSymbol))
+                rawSymbol = p.AsortymentWybrany?.Symbol;
+            string productSymbol = string.IsNullOrWhiteSpace(rawSymbol) ? $"POZ-{lineNo}" : rawSymbol;
 
             lines.Add(new InvoiceLine(
                 LineNo: lineNo,

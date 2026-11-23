@@ -13,10 +13,26 @@ public static class SferaConnectionFactory
 {
     public static Uchwyt Connect(NexoConfig config)
     {
+        // katalogBinariow must be passed explicitly: it tells Sfera's launcher where to find the
+        // rest of the nexo SDK's own assemblies (e.g. InsERT.Mox.Launcher.dll), which it loads
+        // dynamically by name rather than through a normal .NET reference. Left at its default,
+        // it falls back to the process's current working directory, not this executable's own
+        // folder - and an MCP client is not guaranteed to launch us from that folder. We ship all
+        // of those assemblies next to our own build output (see NexoMcp.Server.csproj's
+        // CopyNexoSdkRuntimeFiles target), so AppContext.BaseDirectory is always right.
         var danePolaczenia = DanePolaczenia.Jawne(
             serwer: config.Server,
             baza: config.Database,
-            autentykacjaWindowsDoSerwera: config.WindowsAuthentication);
+            autentykacjaWindowsDoSerwera: config.WindowsAuthentication,
+            uzytkownikSerwera: null,
+            hasloUzytkownikaSerwera: null,
+            szyfrowaniePolaczeniaZSerwerem: false,
+            nazwaUzytkownikaDoImpersonacjiWBazie: null,
+            katalogBinariow: AppContext.BaseDirectory,
+            katalogPlikowKonfiguracyjnych: null,
+            katalogTymczasowy: null,
+            plikStartowy: null,
+            nazwaWdrozenia: null);
 
         var productId = Enum.Parse<ProductId>(config.ProductId, ignoreCase: true);
 

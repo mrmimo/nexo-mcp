@@ -138,6 +138,19 @@ public static class RecurringInvoiceDetector
         @"\bza\s+([a-ząćęłńóśźż]+)\s+(\d{4})\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    // Confirmed against this company's own real invoice descriptions: a one-sided "okres do .."
+    // with no "od .." start date at all (e.g. "Za okres do 14-listopad 2026",
+    // "Za okres do 25-10-2026"). With no start date given, we approximate the period as running
+    // from the first of that end date's month - good enough signal for monthly billing, where
+    // this phrasing is actually used.
+    private static readonly Regex EndDateNumericRegex = new(
+        @"okres\s+do\s+(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{4})\b",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex EndDateMonthNameRegex = new(
+        @"okres\s+do\s+(\d{1,2})[-\s]+([a-ząćęłńóśźż]+)\s+(\d{4})\b",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     /// <summary>
     /// Best-effort extraction of a billing period from a line's free-text description.
     /// Falls back to null (caller should treat the invoice's issue month as the period instead).
@@ -150,6 +163,31 @@ public static class RecurringInvoiceDetector
             && TryParsePolishDate(rangeMatch.Groups[2].Value, out var to))
         {
             return (from, to);
+        }
+
+        var endDateNumericMatch = EndDateNumericRegex.Match(description);
+        if (endDateNumericMatch.Success
+            && int.TryParse(endDateNumericMatch.Groups[1].Value, out var endDay)
+            && int.TryParse(endDateNumericMatch.Groups[2].Value, out var endMonth)
+            && int.TryParse(endDateNumericMatch.Groups[3].Value, out var endYear)
+            && endMonth is >= 1 and <= 12)
+        {
+            var end = new DateOnly(endYear, endMonth, endDay);
+            return (new DateOnly(end.Year, end.Month, 1), end);
+        }
+
+        var endDateMonthNameMatch = EndDateMonthNameRegex.Match(description);
+        if (endDateMonthNameMatch.Success
+            && int.TryParse(endDateMonthNameMatch.Groups[1].Value, out var endDay2)
+            && int.TryParse(endDateMonthNameMatch.Groups[3].Value, out var endYear2))
+        {
+            var stem = endDateMonthNameMatch.Groups[2].Value.ToLowerInvariant();
+            var monthIndex = Array.FindIndex(PolishMonths, m => stem.StartsWith(m, StringComparison.Ordinal));
+            if (monthIndex >= 0)
+            {
+                var end = new DateOnly(endYear2, monthIndex + 1, endDay2);
+                return (new DateOnly(end.Year, end.Month, 1), end);
+            }
         }
 
         var monthYearMatch = MonthYearRegex.Match(description);

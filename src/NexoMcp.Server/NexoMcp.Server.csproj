@@ -3,7 +3,7 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <Platform>x64</Platform>
+    <PlatformTarget>x64</PlatformTarget>
     <UseWPF>true</UseWPF>
     <TargetFramework>net8.0-windows10.0.17763.0</TargetFramework>
     <Nullable>enable</Nullable>
@@ -62,15 +62,19 @@
     </Reference>
   </ItemGroup>
 
-  <!-- Native/runtime files the Sfera assemblies load at runtime - copied next to the build output. -->
+  <!--
+    Sfera loads a chunk of the rest of the nexo SDK's Bin folder dynamically at runtime (plugin
+    host style - e.g. InsERT.Mox.Launcher.dll is pulled in by DanePolaczenia.Jawne even though no
+    code here references it directly), not just the assemblies referenced above. Rather than
+    chase each missing dependency one at a time, copy every DLL/.pak file from the SDK's Bin
+    folder next to this project's own build output.
+  -->
   <Target Name="CopyNexoSdkRuntimeFiles" AfterTargets="Build">
     <ItemGroup>
-      <NexoSdkRuntimeFile Include="$(NexoSdkBinPath)Xml.pak" />
-      <NexoSdkRuntimeFile Include="$(NexoSdkBinPath)sni.dll" />
-      <NexoSdkRuntimeFile Include="$(NexoSdkBinPath)ijwhost.dll" />
-      <NexoSdkRuntimeFile Include="$(NexoSdkBinPath)Microsoft.Data.SqlClient.SNI.dll" />
+      <NexoSdkRuntimeFile Include="$(NexoSdkBinPath)*.dll" />
+      <NexoSdkRuntimeFile Include="$(NexoSdkBinPath)*.pak" />
     </ItemGroup>
-    <Copy SourceFiles="@(NexoSdkRuntimeFile)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" Condition="Exists('%(NexoSdkRuntimeFile.Identity)')" />
+    <Copy SourceFiles="@(NexoSdkRuntimeFile)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" />
   </Target>
 
 </Project>

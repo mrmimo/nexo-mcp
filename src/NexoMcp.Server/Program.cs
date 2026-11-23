@@ -4,7 +4,10 @@ using Microsoft.Extensions.Logging;
 using System.IO;
 using NexoMcp.Core.Cache;
 using NexoMcp.Server;
+using NexoMcp.Server.Sfera;
 using NexoMcp.Server.Tools;
+
+NexoSdkAssemblyResolver.EnsureRegistered();
 
 var config = NexoConfig.FromEnvironment();
 

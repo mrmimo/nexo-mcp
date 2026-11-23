@@ -34,24 +34,31 @@ below) instead of re-querying Sfera on every question.
 nexo (Sfera) --sync--> local SQLite cache --analytics--> MCP tools --stdio--> your AI assistant
 ```
 
-- **NexoMcp.Core** - plain C#, no nexo dependency: the `Invoice`/`InvoiceLine`/`Client` model, the
-  SQLite cache, and the analytics (recurring-invoice detection, monthly revenue, budget
-  projection). Fully unit tested (`dotnet test`).
+- **NexoMcp.Core** - plain C#, no nexo dependency: the `Invoice`/`InvoiceLine` model, the SQLite
+  cache, and the analytics (recurring-invoice detection, monthly revenue, budget projection).
+  Fully unit tested (`dotnet test`).
 - **NexoMcp.Server** - the MCP host. On startup (and then on a timer), it logs into nexo through
   Sfera, reads invoices, and upserts them into the local cache; the actual MCP tools only ever
   read from that cache, so answering a question doesn't open a new Sfera session each time.
 
 ## Status
 
-Builds and compiles cleanly against the real nexo SDK 62.0.2 assemblies, and
-`NexoMcp.Core`'s analytics are unit tested - but the Sfera-reading layer
-(`src/NexoMcp.Server/Sfera/SferaInvoiceReader.cs`) has **not yet been run against a live,
-licensed nexo instance** (none was available while writing it; only the SDK's own XML API docs
-and DLLs). A couple of fields are marked `TODO`/"best effort" in that file's comments where the
+Validated against a real nexo 62.0.2 installation (read-only, against a test company database):
+connects, logs in as an operator, and syncs invoices with correct amounts (net/gross/VAT
+cross-checked against real figures) and line items into the cache. A couple of fields are marked
+`TODO`/"best effort" in `src/NexoMcp.Server/Sfera/SferaInvoiceReader.cs`'s comments where the SDK
 docs alone weren't conclusive (notably: the invoice due date isn't populated yet, and currency
-is hardcoded to PLN). If something looks wrong against your installation or a different SDK
-version, that file is the only place nexo-specific field names appear - issues and PRs very
-welcome.
+is hardcoded to PLN - see "Known limitations"). If something looks wrong against your
+installation or a different SDK version, that file is the only place nexo-specific field names
+appear - issues and PRs very welcome.
+
+Two non-obvious setup gotchas this project's own build already works around (see
+`NexoMcp.Server.csproj` and `Sfera/NexoSdkAssemblyResolver.cs` if you're porting this pattern
+elsewhere): Sfera loads part of the rest of the nexo SDK dynamically by assembly name at
+runtime, which .NET 8 (unlike classic .NET Framework) won't resolve just because the DLL sits
+next to the exe; and `DanePolaczenia.Jawne`'s `katalogBinariow` must be passed explicitly as
+`AppContext.BaseDirectory`, or it resolves relative to the process's current working directory
+instead of the executable's own folder.
 
 ## Setup
 
