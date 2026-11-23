@@ -1,24 +1,28 @@
 using System.ComponentModel;
 using ModelContextProtocol.Server;
 using NexoMcp.Core.Cache;
+using NexoMcp.Core.Models;
 
 namespace NexoMcp.Server.Tools;
 
 [McpServerToolType]
-public sealed class InvoiceTools(InvoiceCache cache)
+public sealed class InvoiceTools(NexoCache cache)
 {
     [McpServerTool(Name = "list_invoices"), Description(
-        "Lists invoices from the local cache, optionally filtered by issue date range and/or client symbol. " +
-        "Returns headers only (no line items) - use get_invoice for the full detail of one invoice.")]
+        "Lists invoices from the local cache, optionally filtered by issue date range, client/supplier " +
+        "symbol, and direction (\"Sale\" for sales invoices, \"Purchase\" for supplier/cost invoices - " +
+        "omit for both). Returns headers only (no line items) - use get_invoice for the full detail of one invoice.")]
     public object ListInvoices(
         [Description("ISO date (yyyy-MM-dd), inclusive. Omit for no lower bound.")] string? from = null,
         [Description("ISO date (yyyy-MM-dd), inclusive. Omit for no upper bound.")] string? to = null,
-        [Description("Client symbol to filter by. Omit to include all clients.")] string? clientSymbol = null)
+        [Description("Client/supplier symbol to filter by. Omit to include all.")] string? clientSymbol = null,
+        [Description("\"Sale\" or \"Purchase\". Omit to include both.")] string? direction = null)
     {
         var invoices = cache.GetInvoices(
             from is null ? null : DateOnly.Parse(from),
             to is null ? null : DateOnly.Parse(to),
-            clientSymbol);
+            clientSymbol,
+            direction: direction is null ? null : Enum.Parse<Direction>(direction, ignoreCase: true));
 
         return invoices.Select(i => new
         {
@@ -26,6 +30,7 @@ public sealed class InvoiceTools(InvoiceCache cache)
             i.FullNumber,
             IssueDate = i.IssueDate.ToString("yyyy-MM-dd"),
             i.Kind,
+            i.Direction,
             i.ClientSymbol,
             i.ClientName,
             i.Currency,
@@ -51,6 +56,7 @@ public sealed class InvoiceTools(InvoiceCache cache)
             IssueDate = invoice.IssueDate.ToString("yyyy-MM-dd"),
             DueDate = invoice.DueDate?.ToString("yyyy-MM-dd"),
             invoice.Kind,
+            invoice.Direction,
             invoice.ClientSymbol,
             invoice.ClientName,
             invoice.Currency,

@@ -10,13 +10,15 @@ internal static class TestInvoices
         string clientSymbol,
         decimal net,
         DocumentKind kind = DocumentKind.Invoice,
-        IReadOnlyList<InvoiceLine>? lines = null) =>
+        IReadOnlyList<InvoiceLine>? lines = null,
+        Direction direction = Direction.Sale) =>
         new(
             id,
             $"FV {id}/{issueDate.Year}",
             issueDate,
             issueDate.AddDays(14),
             kind,
+            direction,
             clientSymbol,
             $"Klient {clientSymbol}",
             "PLN",

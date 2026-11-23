@@ -2,22 +2,21 @@ using NexoMcp.Core.Models;
 
 namespace NexoMcp.Core.Analytics;
 
-public sealed record MonthlyRevenue(int Year, int Month, decimal Net, decimal Gross, int InvoiceCount);
-
 /// <summary>
-/// Aggregates invoices into calendar-month revenue. Proforma invoices are excluded (they are not
-/// yet a sale); corrections are included as-is on the assumption that nexo already stores their
-/// net/gross totals as signed deltas against the original invoice, so summing invoices and
-/// corrections together nets out correctly.
+/// Aggregates sales invoices into calendar-month revenue. Proforma invoices and purchase
+/// documents are excluded (a proforma is not yet a sale; a purchase is a cost, see
+/// <see cref="ExpenseAnalyzer"/>); corrections are included as-is on the assumption that nexo
+/// already stores their net/gross totals as signed deltas against the original invoice, so
+/// summing invoices and corrections together nets out correctly.
 /// </summary>
 public static class RevenueAnalyzer
 {
-    public static IReadOnlyList<MonthlyRevenue> MonthlyBreakdown(IEnumerable<Invoice> invoices)
+    public static IReadOnlyList<MonthlyAmount> MonthlyBreakdown(IEnumerable<Invoice> invoices)
     {
         return invoices
-            .Where(i => i.Kind != DocumentKind.Proforma)
+            .Where(i => i.Direction == Direction.Sale && i.Kind != DocumentKind.Proforma)
             .GroupBy(i => (i.IssueDate.Year, i.IssueDate.Month))
-            .Select(g => new MonthlyRevenue(
+            .Select(g => new MonthlyAmount(
                 g.Key.Year, g.Key.Month,
                 g.Sum(i => i.NetTotal),
                 g.Sum(i => i.GrossTotal),
@@ -26,18 +25,18 @@ public static class RevenueAnalyzer
             .ToList();
     }
 
-    public static decimal AverageMonthlyNet(IReadOnlyList<MonthlyRevenue> months, int? lastNMonths = null)
+    public static decimal AverageMonthlyNet(IReadOnlyList<MonthlyAmount> months, int? lastNMonths = null)
     {
         var slice = Slice(months, lastNMonths);
         return slice.Count == 0 ? 0m : slice.Average(m => m.Net);
     }
 
-    public static decimal AverageMonthlyGross(IReadOnlyList<MonthlyRevenue> months, int? lastNMonths = null)
+    public static decimal AverageMonthlyGross(IReadOnlyList<MonthlyAmount> months, int? lastNMonths = null)
     {
         var slice = Slice(months, lastNMonths);
         return slice.Count == 0 ? 0m : slice.Average(m => m.Gross);
     }
 
-    private static IReadOnlyList<MonthlyRevenue> Slice(IReadOnlyList<MonthlyRevenue> months, int? lastNMonths) =>
+    private static IReadOnlyList<MonthlyAmount> Slice(IReadOnlyList<MonthlyAmount> months, int? lastNMonths) =>
         lastNMonths is null ? months : months.TakeLast(lastNMonths.Value).ToList();
 }

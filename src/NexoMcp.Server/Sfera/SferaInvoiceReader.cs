@@ -32,10 +32,29 @@ public static class SferaInvoiceReader
         IEnumerable<DokumentDS> dokumenty = dokumentySprzedazy.Dane.Wszystkie(
             d => d.DataWydaniaWystawienia >= fromDt && d.DataWydaniaWystawienia <= toDt);
 
-        return dokumenty.Select(MapDocument).ToList();
+        return dokumenty.Select(d => MapDocument(d, Direction.Sale)).ToList();
     }
 
-    private static Invoice MapDocument(DokumentDS d)
+    /// <summary>
+    /// Supplier/purchase documents - a real operating cost, as opposed to ZUS/tax payments which
+    /// never have a document at all (see SferaCashFlowReader). DokumentDZ shares the exact same
+    /// base class (Dokument) and field names as the sales-side DokumentDS, confirmed via
+    /// reflection on the real SDK assembly - one mapping function covers both.
+    /// </summary>
+    public static List<Invoice> ReadPurchaseInvoices(Uchwyt sfera, DateOnly? from = null, DateOnly? to = null)
+    {
+        IDokumentyZakupu dokumentyZakupu = sfera.DokumentyZakupu();
+
+        DateTime fromDt = (from ?? DateOnly.MinValue).ToDateTime(TimeOnly.MinValue);
+        DateTime toDt = (to ?? DateOnly.MaxValue).ToDateTime(TimeOnly.MaxValue);
+
+        IEnumerable<DokumentDZ> dokumenty = dokumentyZakupu.Dane.Wszystkie(
+            d => d.DataWydaniaWystawienia >= fromDt && d.DataWydaniaWystawienia <= toDt);
+
+        return dokumenty.Select(d => MapDocument(d, Direction.Purchase)).ToList();
+    }
+
+    private static Invoice MapDocument(Dokument d, Direction direction)
     {
         bool isCorrection = d.DokumentKorygowanyId.HasValue;
 
@@ -50,8 +69,9 @@ public static class SferaInvoiceReader
             Id: d.Id,
             FullNumber: d.NumerWewnetrzny.PelnaSygnatura,
             IssueDate: DateOnly.FromDateTime(d.DataWydaniaWystawienia.GetValueOrDefault()),
-            DueDate: null, // TODO: confirm the real due-date field (likely under d.Rozrachunek) against a live instance.
+            DueDate: d.Rozrachunek?.TerminPlatnosci is DateTime termin ? DateOnly.FromDateTime(termin) : null,
             Kind: isCorrection ? DocumentKind.Correction : DocumentKind.Invoice,
+            Direction: direction,
             ClientSymbol: klient?.Id.ToString() ?? "NIEZNANY",
             ClientName: klient?.NazwaSkrocona ?? "(brak danych klienta)",
             Currency: "PLN", // TODO: map from d.Waluta once its code/symbol property is confirmed.
@@ -63,7 +83,7 @@ public static class SferaInvoiceReader
             Lines: MapLines(d));
     }
 
-    private static List<InvoiceLine> MapLines(DokumentDS d)
+    private static List<InvoiceLine> MapLines(Dokument d)
     {
         var lines = new List<InvoiceLine>();
         int lineNo = 1;

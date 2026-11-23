@@ -23,11 +23,14 @@ appsettings.*.local.json
 *.local.json
 
 # Local cache database built from the user's own nexo data (contains real
-# invoices/clients) - must never be committed.
+# invoices/clients) - must never be committed. Anchored to the repo root (leading slash) -
+# a bare "cache/" would also match src/NexoMcp.Core/Cache/ (git's gitignore matching is
+# case-insensitive on Windows, so even "cache/" vs "Cache/" collided and silently dropped
+# that whole source folder from every commit until this fix).
 *.db
 *.db-shm
 *.db-wal
-cache/
+/cache/
 
 # Editor/OS noise
 .vs/

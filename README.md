@@ -1,9 +1,11 @@
 # nexo-mcp
 
-An [MCP](https://modelcontextprotocol.io) server that lets an AI assistant query invoices issued
-in **InsERT Subiekt / Gestor nexo** - with their line items, products, clients and dates - and
-run simple analytics on top: finding invoices that are billed on a recurring schedule, the
-periods they cover, average monthly revenue, and a next-year budget projection.
+An [MCP](https://modelcontextprotocol.io) server that lets an AI assistant query **InsERT
+Subiekt / Gestor nexo**: sales invoices and purchase (cost) invoices with their line items,
+products and clients, plus bank/cash operations (so ZUS and tax-office payments - which never
+have an invoice at all - are visible too) - and run simple analytics on top: finding invoices
+billed on a recurring schedule and the periods they cover, monthly revenue, monthly costs, and a
+next-year budget projection that nets the two.
 
 Read-only. It never creates, edits, or deletes anything in nexo.
 
@@ -16,8 +18,8 @@ Sfera in an MCP server so tools like Claude can answer questions such as:
 
 - "List the invoices for client X in 2025, with line items."
 - "Which clients are billed on a recurring (monthly/quarterly/yearly) basis, and for what?"
-- "What's our average monthly revenue over the last 12 months?"
-- "Draft a revenue budget for next year based on this year's invoices."
+- "What's our average monthly revenue over the last 12 months? And our costs?"
+- "Draft a next-year budget based on this year's revenue and costs, including ZUS and tax."
 
 ### Why Sfera and not raw SQL against the nexo database
 
@@ -34,23 +36,36 @@ below) instead of re-querying Sfera on every question.
 nexo (Sfera) --sync--> local SQLite cache --analytics--> MCP tools --stdio--> your AI assistant
 ```
 
-- **NexoMcp.Core** - plain C#, no nexo dependency: the `Invoice`/`InvoiceLine` model, the SQLite
-  cache, and the analytics (recurring-invoice detection, monthly revenue, budget projection).
-  Fully unit tested (`dotnet test`).
+- **NexoMcp.Core** - plain C#, no nexo dependency: the `Invoice`/`InvoiceLine`/`CashOperation`
+  model, the SQLite cache, and the analytics (recurring-invoice detection, monthly revenue,
+  monthly expenses, budget projection). Fully unit tested (`dotnet test`).
 - **NexoMcp.Server** - the MCP host. On startup (and then on a timer), it logs into nexo through
-  Sfera, reads invoices, and upserts them into the local cache; the actual MCP tools only ever
-  read from that cache, so answering a question doesn't open a new Sfera session each time.
+  Sfera, reads sales invoices, purchase invoices, and bank/cash operations, and upserts them into
+  the local cache; the actual MCP tools only ever read from that cache, so answering a question
+  doesn't open a new Sfera session each time.
+
+The cache is disposable - it's rebuilt from nexo, not a system of record. If you upgrade and
+something looks off (or you see a database error mentioning a missing column/table), delete the
+cache file (`NEXO_MCP_CACHE_PATH`, default `cache/invoices.db`) and let the next startup rebuild
+it; there's no schema migration between versions yet.
 
 ## Status
 
 Validated against a real nexo 62.0.2 installation (read-only, against a test company database):
-connects, logs in as an operator, and syncs invoices with correct amounts (net/gross/VAT
-cross-checked against real figures) and line items into the cache. A couple of fields are marked
-`TODO`/"best effort" in `src/NexoMcp.Server/Sfera/SferaInvoiceReader.cs`'s comments where the SDK
-docs alone weren't conclusive (notably: the invoice due date isn't populated yet, and currency
-is hardcoded to PLN - see "Known limitations"). If something looks wrong against your
-installation or a different SDK version, that file is the only place nexo-specific field names
-appear - issues and PRs very welcome.
+connects, logs in as an operator, and syncs sales invoices, purchase invoices, and bank/cash
+operations with correct amounts (net/gross/VAT cross-checked against real figures) into the
+cache - including real recurring-billing clients and real ZUS/tax-office payments, correctly
+picked out from a few hundred bank operations. Two real bugs only surfaced by that live run (not
+visible from the SDK docs alone): nexo's own `RodzajOperacjiBankowej` ZUS/tax parameter
+collections, which looked like a clean structural signal, turned out not to reliably indicate a
+transfer's actual purpose (every tax payment came back miscategorized as ZUS) - replaced with
+counterparty-name keyword matching, which the real data confirms is reliable (see
+`SferaCashFlowReader.cs`); and the nexo operator login was wrongly skipped under
+`NEXO_WINDOWS_AUTH=true` (fixed - see `SferaConnectionFactory.cs`). A couple of fields are still
+marked `TODO`/"best effort" in `SferaInvoiceReader.cs`'s comments (currency is hardcoded to PLN -
+see "Known limitations"). If something looks wrong against your installation or a different SDK
+version, the `Sfera/` folder is the only place nexo-specific field names appear - issues and PRs
+very welcome.
 
 Two non-obvious setup gotchas this project's own build already works around (see
 `NexoMcp.Server.csproj` and `Sfera/NexoSdkAssemblyResolver.cs` if you're porting this pattern
@@ -119,11 +134,12 @@ Example for an MCP client's JSON config (adjust the path to your build output):
 
 | Tool | Description |
 |---|---|
-| `list_invoices` | List cached invoices (headers only), filterable by date range / client. |
-| `get_invoice` | Full detail of one invoice, including every line item. |
+| `list_invoices` | List cached invoices (headers only), filterable by date range, client/supplier, and direction (sale/purchase). |
+| `get_invoice` | Full detail of one invoice (sale or purchase), including every line item. |
 | `find_recurring_invoices` | Client+product pairs billed on a regular cadence, with their detected period where parseable from the line description. |
-| `get_monthly_revenue` | Calendar-month revenue breakdown and average. |
-| `project_budget` | Simple next-year monthly budget (flat trailing average, or seasonal per-month average), with an optional growth rate. |
+| `get_monthly_revenue` | Calendar-month sales revenue breakdown and average. |
+| `get_monthly_expenses` | Calendar-month cost breakdown: purchase invoices, ZUS, tax, other bank/cash outflows. |
+| `project_budget` | Next-year monthly budget for revenue, costs, and their net (flat trailing average, or seasonal per-month average), with independent growth rates for revenue and costs. |
 | `sync_invoices` | Force a re-sync from nexo right now (otherwise runs automatically). |
 | `get_sync_status` | When the cache was last synced. |
 
@@ -137,6 +153,13 @@ Example for an MCP client's JSON config (adjust the path to your build output):
 - `clientSymbol` is currently nexo's internal numeric client id, not a human-readable customer
   code - the dedicated code/symbol field on nexo's client entity couldn't be confirmed from the
   SDK docs alone. `clientName` is read normally; tax id (NIP) isn't surfaced yet.
+- ZUS/tax categorization of bank and cash operations is keyword-matching on the counterparty
+  name/title ("ZUS", "Skarbow[y/a]", "podat..."), not a structural nexo field - see "Status".
+  A ZUS/tax payment made under an unrecognized counterparty name would land in "Other" instead.
+- Cost from a purchase invoice is counted in the month it was *issued*, not when it was actually
+  paid; `get_monthly_expenses`/`project_budget`'s cost side mixes that accrual-basis number with
+  cash-basis bank/cash outflows (ZUS, tax, etc.) - good enough for a first budget draft, but not
+  a strict cash-flow statement.
 - `project_budget` is a simple historical average with an optional manual growth rate, not a
   forecasting model - a first draft, not a substitute for judgement.
 

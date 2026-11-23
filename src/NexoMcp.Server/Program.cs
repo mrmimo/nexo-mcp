@@ -12,7 +12,7 @@ NexoSdkAssemblyResolver.EnsureRegistered();
 var config = NexoConfig.FromEnvironment();
 
 Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(config.CacheDbPath))!);
-var cache = new InvoiceCache($"Data Source={config.CacheDbPath}");
+var cache = new NexoCache($"Data Source={config.CacheDbPath}");
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -37,8 +37,10 @@ var logger = host.Services.GetRequiredService<ILogger<Program>>();
 // whatever is already in the cache rather than failing to start.
 try
 {
-    int count = SyncService.Sync(config, cache);
-    logger.LogInformation("Synchronizacja startowa: {Count} faktur.", count);
+    var result = SyncService.Sync(config, cache);
+    logger.LogInformation(
+        "Synchronizacja startowa: {Invoices} faktur sprzedazy, {Purchases} faktur zakupu, {CashOps} operacji bankowych/kasowych.",
+        result.Invoices, result.PurchaseInvoices, result.CashOperations);
 }
 catch (Exception ex)
 {
@@ -52,8 +54,10 @@ _ = Task.Run(async () =>
         await Task.Delay(TimeSpan.FromMinutes(Math.Max(1, config.SyncIntervalMinutes)));
         try
         {
-            int count = SyncService.Sync(config, cache);
-            logger.LogInformation("Synchronizacja okresowa: {Count} faktur.", count);
+            var result = SyncService.Sync(config, cache);
+            logger.LogInformation(
+                "Synchronizacja okresowa: {Invoices} faktur sprzedazy, {Purchases} faktur zakupu, {CashOps} operacji bankowych/kasowych.",
+                result.Invoices, result.PurchaseInvoices, result.CashOperations);
         }
         catch (Exception ex)
         {

@@ -6,6 +6,7 @@ public sealed record Invoice(
     DateOnly IssueDate,
     DateOnly? DueDate,
     DocumentKind Kind,
+    Direction Direction,
     string ClientSymbol,
     string ClientName,
     string Currency,

@@ -26,7 +26,7 @@ public sealed record BudgetProjection(
 public static class BudgetProjector
 {
     public static BudgetProjection Project(
-        IReadOnlyList<MonthlyRevenue> history,
+        IReadOnlyList<MonthlyAmount> history,
         int targetYear,
         ProjectionMethod method,
         decimal growthRatePercent = 0m)
@@ -41,7 +41,7 @@ public static class BudgetProjector
         return new BudgetProjection(targetYear, method, growthRatePercent, months, months.Sum(m => m.ProjectedNet));
     }
 
-    private static List<MonthlyBudget> ProjectFlat(IReadOnlyList<MonthlyRevenue> history, decimal growthRatePercent)
+    private static List<MonthlyBudget> ProjectFlat(IReadOnlyList<MonthlyAmount> history, decimal growthRatePercent)
     {
         var trailing = history.TakeLast(12).ToList();
         decimal baseAverage = trailing.Count == 0 ? 0m : trailing.Average(m => m.Net);
@@ -50,7 +50,7 @@ public static class BudgetProjector
         return Enumerable.Range(1, 12).Select(month => new MonthlyBudget(month, projected)).ToList();
     }
 
-    private static List<MonthlyBudget> ProjectSeasonal(IReadOnlyList<MonthlyRevenue> history, decimal growthRatePercent)
+    private static List<MonthlyBudget> ProjectSeasonal(IReadOnlyList<MonthlyAmount> history, decimal growthRatePercent)
     {
         decimal overallAverage = history.Count == 0 ? 0m : history.Average(m => m.Net);
 

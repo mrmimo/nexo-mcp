@@ -5,12 +5,12 @@ using static NexoMcp.Core.Tests.TestInvoices;
 
 namespace NexoMcp.Core.Tests;
 
-public class InvoiceCacheTests
+public class NexoCacheTests
 {
     [Fact]
     public void Round_trips_invoices_and_their_lines_through_sqlite()
     {
-        using var cache = new InvoiceCache("Data Source=:memory:;Cache=Shared");
+        using var cache = new NexoCache("Data Source=:memory:;Cache=Shared");
 
         var invoice = Invoice(1, new DateOnly(2025, 3, 1), "ACME", 100m,
             lines:
@@ -31,7 +31,7 @@ public class InvoiceCacheTests
     [Fact]
     public void Upsert_replaces_lines_for_an_already_cached_invoice()
     {
-        using var cache = new InvoiceCache("Data Source=:memory:;Cache=Shared");
+        using var cache = new NexoCache("Data Source=:memory:;Cache=Shared");
 
         var first = Invoice(1, new DateOnly(2025, 3, 1), "ACME", 100m,
             lines: [Line(1, "HOSTING", "v1", 100m)]);
@@ -50,7 +50,7 @@ public class InvoiceCacheTests
     [Fact]
     public void Filters_by_date_range_and_client()
     {
-        using var cache = new InvoiceCache("Data Source=:memory:;Cache=Shared");
+        using var cache = new NexoCache("Data Source=:memory:;Cache=Shared");
         cache.UpsertInvoices(
         [
             Invoice(1, new DateOnly(2025, 1, 1), "ACME", 100m),
@@ -67,7 +67,7 @@ public class InvoiceCacheTests
     [Fact]
     public void Tracks_last_sync_timestamp()
     {
-        using var cache = new InvoiceCache("Data Source=:memory:;Cache=Shared");
+        using var cache = new NexoCache("Data Source=:memory:;Cache=Shared");
 
         Assert.Null(cache.GetLastSyncUtc());
 

@@ -9,7 +9,7 @@ public class BudgetProjectorTests
     public void Flat_projection_repeats_trailing_average_across_all_months()
     {
         var history = Enumerable.Range(1, 12)
-            .Select(m => new MonthlyRevenue(2025, m, 1200m, 1476m, 1))
+            .Select(m => new MonthlyAmount(2025, m, 1200m, 1476m, 1))
             .ToList();
 
         var budget = BudgetProjector.Project(history, 2026, ProjectionMethod.FlatTrailingAverage);
@@ -23,7 +23,7 @@ public class BudgetProjectorTests
     public void Flat_projection_applies_growth_rate()
     {
         var history = Enumerable.Range(1, 12)
-            .Select(m => new MonthlyRevenue(2025, m, 1000m, 1230m, 1))
+            .Select(m => new MonthlyAmount(2025, m, 1000m, 1230m, 1))
             .ToList();
 
         var budget = BudgetProjector.Project(history, 2026, ProjectionMethod.FlatTrailingAverage, growthRatePercent: 10m);
@@ -34,7 +34,7 @@ public class BudgetProjectorTests
     [Fact]
     public void Seasonal_projection_uses_each_calendar_month_own_history()
     {
-        var history = new List<MonthlyRevenue>
+        var history = new List<MonthlyAmount>
         {
             new(2024, 12, 5000m, 6150m, 1), // December: high season
             new(2025, 1, 500m, 615m, 1),

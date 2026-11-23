@@ -21,7 +21,7 @@ public class RevenueAnalyzerTests
 
         Assert.Equal(2, months.Count);
         Assert.Equal(150m, months[0].Net);
-        Assert.Equal(2, months[0].InvoiceCount);
+        Assert.Equal(2, months[0].Count);
         Assert.Equal(200m, months[1].Net);
     }
 
@@ -58,7 +58,7 @@ public class RevenueAnalyzerTests
     [Fact]
     public void Average_monthly_net_respects_trailing_window()
     {
-        var months = new List<MonthlyRevenue>
+        var months = new List<MonthlyAmount>
         {
             new(2024, 12, 1000m, 1230m, 1),
             new(2025, 1, 100m, 123m, 1),
