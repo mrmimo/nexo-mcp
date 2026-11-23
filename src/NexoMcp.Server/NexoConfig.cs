@@ -9,8 +9,12 @@ public sealed class NexoConfig
 {
     public required string Server { get; init; }
     public required string Database { get; init; }
+
+    /// <summary>Governs only the SQL Server connection layer. Logging into Sfera as a nexo operator (<see cref="Login"/>/<see cref="Password"/>) is a separate, always-required step on top of this.</summary>
     public bool WindowsAuthentication { get; init; } = true;
-    public string? Login { get; init; }
+
+    /// <summary>nexo operator login - always required, independent of <see cref="WindowsAuthentication"/>.</summary>
+    public required string Login { get; init; }
     public string? Password { get; init; }
 
     /// <summary>
@@ -27,12 +31,14 @@ public sealed class NexoConfig
     {
         string? server = Environment.GetEnvironmentVariable("NEXO_SERVER");
         string? database = Environment.GetEnvironmentVariable("NEXO_DATABASE");
-        if (string.IsNullOrWhiteSpace(server) || string.IsNullOrWhiteSpace(database))
+        string? login = Environment.GetEnvironmentVariable("NEXO_LOGIN");
+        if (string.IsNullOrWhiteSpace(server) || string.IsNullOrWhiteSpace(database) || string.IsNullOrWhiteSpace(login))
         {
             throw new InvalidOperationException(
-                "NEXO_SERVER i NEXO_DATABASE sa wymagane (patrz .env.example). " +
+                "NEXO_SERVER, NEXO_DATABASE i NEXO_LOGIN sa wymagane (patrz .env.example). " +
                 "NEXO_SERVER to instancja SQL Server z Twojej instalacji nexo (np. \"(local)\\\\INSERTNEXO\"), " +
-                "NEXO_DATABASE to nazwa bazy firmowej.");
+                "NEXO_DATABASE to nazwa bazy firmowej, NEXO_LOGIN to login OPERATORA nexo (niezaleznie od " +
+                "NEXO_WINDOWS_AUTH, ktory dotyczy tylko polaczenia z SQL Serverem).");
         }
 
         bool windowsAuth = !bool.TryParse(Environment.GetEnvironmentVariable("NEXO_WINDOWS_AUTH"), out var parsed) || parsed;
@@ -42,7 +48,7 @@ public sealed class NexoConfig
             Server = server,
             Database = database,
             WindowsAuthentication = windowsAuth,
-            Login = Environment.GetEnvironmentVariable("NEXO_LOGIN"),
+            Login = login,
             Password = Environment.GetEnvironmentVariable("NEXO_PASSWORD"),
             ProductId = Environment.GetEnvironmentVariable("NEXO_PRODUCT_ID") ?? "Subiekt",
             CacheDbPath = Environment.GetEnvironmentVariable("NEXO_MCP_CACHE_PATH") ?? "cache/invoices.db",
